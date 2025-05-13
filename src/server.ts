@@ -46,7 +46,7 @@ app.post('/analyze-message', async (req, res) => {
     }
 
     try {
-      const transport = new SSEClientTransport(new URL("https://3148-63-169-127-154.ngrok-free.app/sse"));
+      const transport = new SSEClientTransport(new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse"));
       await mcp.connect(transport);
   
       const toolsResult = await mcp.listTools();
