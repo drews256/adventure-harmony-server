@@ -91,17 +91,6 @@ app.post('/analyze-message', async (req, res) => {
     if (messageError) throw messageError;
     const phoneNumber = message.from_number;
 
-    // Fetch conversation events
-    const { data: events, error: eventsError } = await supabase
-      .from('calendar_events')
-      .select('*')
-      .eq('profile_id', profileId)
-      .gte('start_time', new Date().toISOString())
-      .order('start_time', { ascending: true })
-      .limit(10);
-
-    if (eventsError) throw eventsError;
-
     // Fetch previous conversation history
     const { data: history, error: historyError } = await supabase
       .from('claude_conversation_history')
@@ -121,8 +110,13 @@ app.post('/analyze-message', async (req, res) => {
 
     // Add the current request
     const userContent = `Here's the context:
-      Upcoming Events: ${JSON.stringify(events)}
       Current Request: ${requestText}
+
+      You're a helpful assistant that can help with the following tasks:
+      - Analyze the current request and provide a response
+      - Analyze the conversation history and provide a response
+      - You have access to a suite of tools to help you with the current request all against a tool that helps guides run their businesses.
+      - The person you're helping is a guide and they're running a business - most likely a hunting, fishing, or outdoor related business.
       
       Please analyze this information and provide a response. Remember to:
       1. Use America/Los_Angeles timezone for all times
