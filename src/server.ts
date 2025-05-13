@@ -3,7 +3,9 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { Anthropic } from '@anthropic-ai/sdk';
-import { MessageParam } from '@anthropic-ai/sdk/resources/messages/messages';
+import { MessageParam, Tool } from '@anthropic-ai/sdk/resources/messages/messages';
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
 dotenv.config();
 
@@ -14,6 +16,9 @@ const port = process.env.PORT || 3000;
 const SUPABASE_URL = "https://dhelbmzzhobadauctczs.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoZWxibXp6aG9iYWRhdWN0Y3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNjE4NjAsImV4cCI6MjA1NzgzNzg2MH0.YsAuD4nlB2dF5vNGs7itgRO21yRYx6Ge8MYeCIXDMzo";
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+const mcp = new Client({ name: "mcp-client-cli", version: "1.0.0" });
+var tools: Tool[] = [];
 
 // Initialize Anthropic client
 const anthropic = new Anthropic({
@@ -40,6 +45,27 @@ app.post('/analyze-message', async (req, res) => {
       return res.status(400).json({
         error: 'Missing required fields: messageId, profileId, or requestText'
       });
+    }
+
+    try {
+      const transport = new SSEClientTransport(new URL("https://3148-63-169-127-154.ngrok-free.app/sse"));
+      await mcp.connect(transport);
+  
+      const toolsResult = await mcp.listTools();
+      tools = toolsResult.tools.map((tool) => {
+        return {
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.inputSchema,
+        };
+      });
+      console.log(
+        "Connected to server with tools:",
+        tools.map(({ name }) => name)
+      );
+    } catch (e) {
+      console.log("Failed to connect to MCP server: ", e);
+      throw e;
     }
 
     // Create analysis record
@@ -115,6 +141,7 @@ app.post('/analyze-message', async (req, res) => {
     const response = await anthropic.messages.create({
       model: 'claude-3-opus-20240229',
       max_tokens: 1000,
+      tools: tools,
       messages: [
         ...anthropicMessages,
         {
