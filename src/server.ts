@@ -165,6 +165,7 @@ app.post('/analyze-message', async (req, res) => {
     });
 
   } catch (error) {
+    console.trace();
     console.error('Error in analyze-message endpoint:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
