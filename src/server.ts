@@ -34,6 +34,8 @@ app.post('/analyze-message', async (req, res) => {
   try {
     const { messageId, profileId, requestText } = req.body;
 
+    console.log(messageId, profileId, requestText);
+
     if (!messageId || !profileId || !requestText) {
       return res.status(400).json({
         error: 'Missing required fields: messageId, profileId, or requestText'
@@ -53,6 +55,8 @@ app.post('/analyze-message', async (req, res) => {
       .select()
       .single();
 
+    console.log(analysis);
+
     if (analysisError) throw analysisError;
 
     // Get the phone number from the original message
@@ -62,6 +66,7 @@ app.post('/analyze-message', async (req, res) => {
       .eq('id', messageId)
       .single();
 
+    console.log(message);
     if (messageError) throw messageError;
     const phoneNumber = message.from_number;
 
@@ -74,6 +79,7 @@ app.post('/analyze-message', async (req, res) => {
       .order('start_time', { ascending: true })
       .limit(10);
 
+    console.log(events)
     if (eventsError) throw eventsError;
 
     // Fetch previous conversation history
@@ -84,6 +90,7 @@ app.post('/analyze-message', async (req, res) => {
       .eq('profile_id', profileId)
       .order('created_at', { ascending: true });
 
+    console.log(history)
     if (historyError) throw historyError;
 
     // Build message history
