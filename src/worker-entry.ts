@@ -415,6 +415,7 @@ async function processMessage(messageId: string) {
           });
 
           // Create a new message for the tool result
+          // Keep status as 'pending' so it can be picked up for further processing
           const { data: toolResultMessage } = await supabase
             .from('conversation_messages')
             .insert({
@@ -424,7 +425,7 @@ async function processMessage(messageId: string) {
               content: formattedResult.text || JSON.stringify(toolResult),
               parent_message_id: messageId,
               tool_calls: [block],
-              status: 'completed'
+              status: 'pending'
             })
             .select()
             .single();

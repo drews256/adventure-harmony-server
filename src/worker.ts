@@ -214,7 +214,7 @@ async function processJob(job: ConversationJob) {
             }
           ];
           
-          // Update job with the new conversation history and tool result
+          // After tool execution, update to 'tool_complete' with the result
           await updateJobStatus(job.id, 'tool_complete', {
             tool_results: job.tool_results.concat({
               ...toolCall,
