@@ -156,8 +156,15 @@ async function processMessage(messageId: string) {
       .eq('id', messageId);
     logWithTimestamp('Updated message status to processing');
 
-    // Get conversation history by following parent chain
-    async function getMessageChain(currentMessageId: string): Promise<any[]> {
+    // Get conversation history by following parent chain with improved handling
+    async function getMessageChain(currentMessageId: string, depth: number = 0, maxDepth: number = 10): Promise<any[]> {
+      // Safety check to prevent infinite recursion
+      if (depth > 30) {
+        logWithTimestamp('Warning: Reached maximum recursion depth when fetching message chain');
+        return [];
+      }
+      
+      // Get current message and direct children
       const { data: messages, error } = await supabase
         .from('conversation_messages')
         .select('*')
@@ -170,11 +177,43 @@ async function processMessage(messageId: string) {
       }
 
       // Find the parent message if it exists
-      const parentMessage = messages?.find(msg => msg.id === currentMessageId)?.parent_message_id;
+      const currentMessage = messages?.find(msg => msg.id === currentMessageId);
+      if (!currentMessage) {
+        logWithTimestamp(`Warning: Could not find message with ID ${currentMessageId}`);
+        return messages || [];
+      }
       
-      if (parentMessage) {
-        // Recursively get parent chain
-        const parentChain = await getMessageChain(parentMessage);
+      // Get tool interaction messages connected to this message
+      const toolInteractionMessages = messages?.filter(msg => 
+        msg.parent_message_id === currentMessageId && msg.tool_calls !== null
+      ) || [];
+      
+      // See if there is stored conversation history
+      let storedHistory: any[] = [];
+      if (currentMessage.conversation_history) {
+        try {
+          storedHistory = JSON.parse(currentMessage.conversation_history);
+          logWithTimestamp(`Found stored conversation history with ${storedHistory.length} messages`);
+        } catch (e) {
+          logWithTimestamp('Error parsing stored conversation history:', e);
+        }
+      }
+      
+      // If we have stored history and we're at the first level, use it
+      if (storedHistory.length > 0 && depth === 0) {
+        logWithTimestamp('Using stored conversation history');
+        return messages || [];
+      }
+      
+      // If we have a parent and haven't reached max depth, get parent chain
+      if (currentMessage.parent_message_id && depth < maxDepth) {
+        const parentChain = await getMessageChain(
+          currentMessage.parent_message_id, 
+          depth + 1,
+          maxDepth
+        );
+        
+        // Combine parent chain with current messages
         return [...parentChain, ...messages];
       }
 
@@ -187,14 +226,80 @@ async function processMessage(messageId: string) {
     
     logWithTimestamp(`Retrieved ${uniqueHistory.length} messages in conversation chain`);
 
-    // Build conversation for Claude
-    const messages = uniqueHistory.map(msg => {
-      const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
-      return {
-        role,
-        content: msg.content
-      };
-    });
+    // Check if the current message has stored conversation history
+    const currentMessage = uniqueHistory.find(msg => msg.id === messageId);
+    let conversationMessages: any[] = [];
+    
+    if (currentMessage?.conversation_history) {
+      try {
+        // Try to use stored conversation history first
+        const storedHistory = JSON.parse(currentMessage.conversation_history);
+        if (Array.isArray(storedHistory) && storedHistory.length > 0) {
+          logWithTimestamp(`Using stored conversation history with ${storedHistory.length} messages`);
+          conversationMessages = storedHistory;
+        }
+      } catch (e) {
+        logWithTimestamp('Error parsing stored conversation history, will rebuild from messages:', e);
+      }
+    }
+    
+    // If we don't have valid stored history, build it from the messages
+    if (conversationMessages.length === 0) {
+      logWithTimestamp('Building conversation history from message chain');
+      
+      // First, get all tool interactions to ensure they're included
+      const toolInteractions = uniqueHistory.filter(msg => msg.tool_calls !== null && msg.tool_calls.length > 0);
+      
+      // Include all messages but prioritize most recent ones
+      const recentMessages = uniqueHistory
+        .filter(msg => !toolInteractions.some(ti => ti.id === msg.id)) // exclude tool interactions to avoid duplication
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10) // Take most recent 10 messages
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()); // Sort back in chronological order
+      
+      // Combine and convert to Claude format
+      const allMessages = [...recentMessages, ...toolInteractions].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      
+      // Convert to Claude's message format
+      conversationMessages = allMessages.map(msg => {
+        const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
+        
+        // Check if it's a tool call message
+        if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+          // First check if the content is already a Claude-formatted message
+          try {
+            const parsedContent = JSON.parse(msg.content);
+            if (parsedContent && typeof parsedContent === 'object') {
+              return {
+                role,
+                content: parsedContent
+              };
+            }
+          } catch (e) {
+            // Not JSON, continue with normal processing
+          }
+          
+          // Handle tool calls by creating a properly formatted message
+          return {
+            role: 'assistant' as const,
+            content: [
+              { type: 'text', text: typeof msg.content === 'string' ? msg.content : 'Tool result:' },
+              ...msg.tool_calls
+            ]
+          };
+        }
+        
+        return {
+          role,
+          content: msg.content
+        };
+      });
+    }
+    
+    // Final messages array for Claude
+    const messages = conversationMessages;
     
     // Connect to MCP
     const mcp = await ensureMcpConnection();

@@ -290,7 +290,7 @@ async function processJob(job: ConversationJob) {
       }
     }
 
-    // Save conversation history
+    // Save conversation history to both the history table and the message
     await supabase.from('claude_conversation_history').insert([
       {
         profile_id: job.profile_id,
@@ -308,8 +308,29 @@ async function processJob(job: ConversationJob) {
         tool_calls: toolCalls.length > 0 ? JSON.stringify(toolCalls) : null
       }
     ]);
+    
+    // Get the original message to maintain parent-child relationship
+    const { data: originalMessage } = await supabase
+      .from('conversation_messages')
+      .select('*')
+      .eq('id', job.message_id)
+      .single();
+      
+    // Create a new message with the response and conversation history
+    await supabase
+      .from('conversation_messages')
+      .insert({
+        profile_id: job.profile_id,
+        phone_number: job.phone_number,
+        direction: 'outgoing',
+        content: finalResponse,
+        parent_message_id: job.message_id,
+        tool_calls: toolCalls.length > 0 ? toolCalls : null,
+        conversation_history: JSON.stringify(job.conversation_history),
+        status: 'completed'
+      });
 
-    // Update job as completed with the final conversation history
+    // Update job as completed
     await updateJobStatus(job.id, 'completed', {
       final_response: finalResponse,
       conversation_history: job.conversation_history
