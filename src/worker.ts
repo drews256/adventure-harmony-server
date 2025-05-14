@@ -83,6 +83,7 @@ async function processJob(job: ConversationJob) {
       if (block.type === 'text') {
         finalResponse += block.text + '\n';
       } else if (block.type === 'tool_use') {
+        console.log('Tool use', block);
         // Create tool call state
         const toolCall: ToolCallState = {
           id: block.id,

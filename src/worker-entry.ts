@@ -104,6 +104,8 @@ async function processMessage(messageId: string) {
     let finalResponse = '';
     let toolCalls = [];
 
+    console.log(response.content);
+
     // Process Claude's response
     for (const block of response.content) {
       if (block.type === 'text') {
@@ -112,6 +114,10 @@ async function processMessage(messageId: string) {
           text: block.text.substring(0, 100) + '...' // Log first 100 chars
         });
       } else if (block.type === 'tool_use') {
+        logWithTimestamp('Received tool use from Claude:', {
+          tool: block.name,
+          arguments: block.input
+        });
         toolCalls.push(block);
         logWithTimestamp('Received tool call from Claude:', {
           tool: block.name,
