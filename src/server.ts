@@ -47,6 +47,7 @@ app.get('/health', (req, res) => {
 
 // Initial message endpoint
 app.post('/analyze-message', async (req, res) => {
+  console.log('Processing message');
   try {
     const { messageId, profileId, requestText } = req.body;
 
@@ -106,145 +107,39 @@ app.post('/analyze-message', async (req, res) => {
 // Process message endpoint (called by database trigger)
 app.post('/process-message', async (req, res) => {
   try {
-    const { message_id, profile_id, phone_number, content, direction, parent_message_id, tool_results } = req.body;
-
-    // Update status to processing
-    await supabase
-      .from('conversation_messages')
-      .update({ status: 'processing' })
-      .eq('id', message_id);
-
-    // Get conversation history
-    const { data: history } = await supabase
-      .from('conversation_messages')
-      .select('*')
-      .eq('phone_number', phone_number)
-      .eq('profile_id', profile_id)
-      .order('created_at', { ascending: true })
-      .limit(10);
-
-    // Connect to MCP if needed
-    const mcp = await ensureMcpConnection();
-    const toolsResult = await mcp.listTools();
-    const tools = toolsResult.tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.inputSchema,
-    }));
-
-    // Build conversation for Claude
-    const messages = history?.map(msg => {
-      const role: MessageRole = msg.direction === 'incoming' ? 'user' : 'assistant';
-      return {
-        role,
-        content: msg.content
-      };
-    }) || [];
-
-    console.log(messages);
-
-    // Call Claude
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 1000,
-      tools,
-      messages: [...messages, { role: 'user' as MessageRole, content }]
-    });
-
-    let finalResponse = '';
-    let toolCalls = [];
-
-    // Process Claude's response
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        finalResponse += block.text + '\n';
-      } else if (block.type === 'tool_use') {
-        toolCalls.push(block);
-        
-        try {
-          // Execute tool call
-          const toolResult = await mcp.callTool({
-            id: block.id,
-            name: block.name,
-            arguments: block.input as Record<string, unknown>,
-            tool_result: []
-          });
-
-          // Create a new message for the tool result
-          await supabase
-            .from('conversation_messages')
-            .insert({
-              profile_id,
-              phone_number,
-              direction: 'outgoing',
-              content: JSON.stringify(toolResult),
-              parent_message_id: message_id,
-              tool_calls: [block],
-              status: 'pending'
-            });
-
-          // Send immediate tool result via SMS if it's a text response
-          if (typeof toolResult === 'object' && toolResult !== null && 'text' in toolResult) {
-            await supabase.functions.invoke('send-sms', {
-              body: {
-                to: phone_number,
-                message: `Tool result: ${toolResult.text}`
-              }
-            });
-          }
-        } catch (error) {
-          console.error('Error executing tool call:', error);
-          const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-          finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;
-        }
-      }
+    const { message_id, profile_id, phone_number, content, direction, parent_message_id } = req.body;
+    
+    if (!message_id || !profile_id || !phone_number || !content) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Create response message
-    await supabase
+    // Create a new message with pending status for the worker to process
+    const { error: insertError } = await supabase
       .from('conversation_messages')
       .insert({
+        id: message_id,  // Use the same ID that was sent
         profile_id,
         phone_number,
-        direction: 'outgoing',
-        content: finalResponse,
-        parent_message_id: message_id,
-        tool_calls: toolCalls.length > 0 ? toolCalls : null,
-        status: 'completed'
+        direction,
+        content,
+        parent_message_id,
+        status: 'pending'  // This is what the worker looks for
       });
 
-    // Update original message as completed
-    await supabase
-      .from('conversation_messages')
-      .update({ status: 'completed' })
-      .eq('id', message_id);
-
-    // Send response via SMS
-    if (finalResponse) {
-      await supabase.functions.invoke('send-sms', {
-        body: {
-          to: phone_number,
-          message: finalResponse
-        }
-      });
+    if (insertError) {
+      console.error('Error creating pending message:', insertError);
+      return res.status(500).json({ error: 'Failed to create pending message' });
     }
 
-    res.json({ success: true });
-
-  } catch (error) {
-    console.error('Error processing message:', error);
+    // Quickly acknowledge the request
+    res.json({ 
+      success: true, 
+      message: 'Message queued for processing',
+      message_id 
+    });
     
-    // Update message status to failed
-    if (req.body?.message_id) {
-      await supabase
-        .from('conversation_messages')
-        .update({ 
-          status: 'failed',
-          error_message: error instanceof Error ? error.message : 'Unknown error'
-        })
-        .eq('id', req.body.message_id);
-    }
-
+  } catch (error) {
+    console.error('Error creating pending message:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
     });

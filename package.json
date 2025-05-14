@@ -6,7 +6,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker-entry.js",
-    "dev": "ts-node-dev --respawn src/server.ts",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:worker\"",
+    "dev:server": "ts-node-dev --respawn src/server.ts",
     "dev:worker": "ts-node-dev --respawn src/worker-entry.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

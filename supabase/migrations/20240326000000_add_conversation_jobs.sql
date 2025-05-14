@@ -72,13 +72,14 @@ BEGIN
       'tool_results', NEW.tool_results
     );
 
-    -- Make HTTP POST request to our API
-    PERFORM
-      net.http_post(
-        url := webhook_url,
-        body := payload::text,
-        headers := '{"Content-Type": "application/json"}'
-      );
+    -- Make HTTP POST request to our API using pg_net
+    PERFORM pg_net.http_post(
+      url => webhook_url,
+      body => payload::text,
+      headers => jsonb_build_object(
+        'Content-Type', 'application/json'
+      )
+    );
   END IF;
   
   RETURN NEW;
@@ -89,7 +90,4 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trigger_message_processor
   AFTER INSERT OR UPDATE ON conversation_messages
   FOR EACH ROW
-  EXECUTE FUNCTION notify_message_processor();
-
--- Enable the HTTP extension if not already enabled
-CREATE EXTENSION IF NOT EXISTS "http" WITH SCHEMA "net"; 
+  EXECUTE FUNCTION notify_message_processor(); 
