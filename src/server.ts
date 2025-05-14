@@ -150,6 +150,7 @@ app.post('/analyze-message', async (req, res) => {
         try {
           // Execute the tool call using MCP
           const toolResult = await mcp.callTool({ name: block.name, arguments: block.input as Record<string, unknown> });
+          console.log("Tool result:", toolResult);
             
             // Send immediate tool result via SMS if it's a text response
             if (typeof toolResult === 'object' && toolResult !== null && 'text' in toolResult) {
