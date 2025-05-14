@@ -29,7 +29,7 @@ export function suggestToolsForMessage(message: string, availableTools: MCPTool[
     // Order-related keywords
     'order': ['Orders_'],
     'booking': ['Orders_'],
-    'reservation': ['Orders_'],
+    'booking_order': ['Orders_'],
     
     // Payment-related keywords
     'payment': ['Payment_'],
@@ -44,16 +44,15 @@ export function suggestToolsForMessage(message: string, availableTools: MCPTool[
     // Dashboard-related keywords
     'dashboard': ['Dashboard_'],
     'stats': ['Dashboard_', 'Reports_'],
-    'analytics': ['Dashboard_', 'Reports_'],
     
     // Report-related keywords
     'report': ['Reports_'],
-    'analytics': ['Reports_'],
+    'analytics': ['Dashboard_', 'Reports_'],
     
     // Resources and schedules
     'resource': ['Resources_'],
     'equipment': ['Resources_'],
-    'schedule': ['Schedules_']
+    'time_slot': ['Schedules_']
   };
   
   // Identify keywords in the message

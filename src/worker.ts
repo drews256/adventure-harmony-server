@@ -95,7 +95,7 @@ async function processJob(job: ConversationJob) {
     const messageArray = [
       ...job.conversation_history,
       {
-        role: 'user',
+        role: 'user' as const,
         content: job.request_text
       }
     ];
@@ -126,8 +126,9 @@ async function processJob(job: ConversationJob) {
     let finalResponse = '';
     let toolCalls: ToolCallState[] = [];
 
-    // Process each content block
-    for (const block of response.content) {
+    // Process each content block - type assertion needed since API types are complex
+    const responseContent = (response as any).content;
+    for (const block of responseContent) {
       if (block.type === 'text') {
         finalResponse += block.text + '\n';
       } else if (block.type === 'tool_use') {
@@ -186,18 +187,18 @@ async function processJob(job: ConversationJob) {
           const toolResponseMessages = [
             ...job.conversation_history,
             {
-              role: 'user',
+              role: 'user' as const,
               content: job.request_text
             },
             {
-              role: 'assistant',
+              role: 'assistant' as const,
               content: [
                 { type: 'text', text: finalResponse },
                 block
               ]
             },
             {
-              role: 'user',
+              role: 'user' as const,
               content: JSON.stringify(toolResult)
             }
           ];
@@ -226,7 +227,8 @@ async function processJob(job: ConversationJob) {
           );
           
           // Add tool response to final response
-          for (const toolBlock of toolResponse.content) {
+          const toolResponseContent = (toolResponse as any).content;
+          for (const toolBlock of toolResponseContent) {
             if (toolBlock.type === 'text') {
               finalResponse += toolBlock.text + '\n';
             }

@@ -42,7 +42,7 @@ export async function executeToolPipeline(
       results.push(transformedResult);
     } catch (error) {
       console.error(`Error in pipeline step ${step.toolName}:`, error);
-      results.push({ error: error.message });
+      results.push({ error: error instanceof Error ? error.message : String(error) });
     }
   }
   
@@ -66,7 +66,7 @@ export const commonPipelines = {
     },
     {
       toolName: 'Availability_SearchListingScheduleAvailability',
-      args: (prevResults) => {
+      args: (prevResults: any[]) => {
         const listings = prevResults[0] || [];
         const listingIds = listings.map((l: any) => l.id).filter(Boolean);
         return {
@@ -88,7 +88,7 @@ export const commonPipelines = {
     },
     {
       toolName: 'Customers_GetById',
-      args: (prevResults) => {
+      args: (prevResults: any[]) => {
         const order = prevResults[0] || {};
         return { customerId: order.customerId };
       }
@@ -103,7 +103,7 @@ export const commonPipelines = {
     },
     {
       toolName: 'Orders_Search',
-      args: (prevResults) => {
+      args: (prevResults: any[]) => {
         const customer = prevResults[0] || {};
         return { 
           request: {
@@ -128,7 +128,7 @@ export const commonPipelines = {
     },
     {
       toolName: 'Availability_SearchResourcesAvailability',
-      args: (prevResults) => {
+      args: (prevResults: any[]) => {
         const resources = prevResults[0] || [];
         const resourceIds = resources.map((r: any) => r.id).filter(Boolean);
         return {

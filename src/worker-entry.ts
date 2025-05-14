@@ -254,10 +254,13 @@ async function processMessage(messageId: string) {
     let finalResponse = '';
     let toolCalls = [];
     logWithTimestamp('Claude response:', response);
-    logWithTimestamp('Claude content:', response.content);
+    
+    // Type assertion needed for response content
+    const responseContent = (response as any).content;
+    logWithTimestamp('Claude content:', responseContent);
 
     // Process Claude's response
-    for (const block of response.content) {
+    for (const block of responseContent) {
       if (block.type === 'text') {
         finalResponse += block.text + '\n';
         logWithTimestamp('Received text response from Claude:', {

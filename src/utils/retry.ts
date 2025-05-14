@@ -31,7 +31,7 @@ export async function withRetry<T>(
       }
       
       // Check if error is retryable
-      const errorString = error.toString();
+      const errorString = String(error);
       const isRetryable = retryableErrors.length === 0 || 
         retryableErrors.some(pattern => {
           if (typeof pattern === 'string') {
