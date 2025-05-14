@@ -204,24 +204,48 @@ async function processJob(job: ConversationJob) {
             formatted_result: formattedResult.text
           };
           
-          const updatedConversationHistory = [
-            ...job.conversation_history,
-            {
+          // We need to structure the conversation history properly for tool use/result
+          // When a tool_use appears in an assistant message, the next user message must contain
+          // a tool_result block with the matching ID
+          
+          // First, check if the request is already in conversation history to avoid duplication
+          const requestAlreadyPresent = job.conversation_history.some(
+            msg => msg.role === 'user' && msg.content === job.request_text
+          );
+          
+          // Begin building the updated history
+          let updatedConversationHistory = [...job.conversation_history];
+          
+          // Add user request if not already present
+          if (!requestAlreadyPresent) {
+            updatedConversationHistory.push({
               role: 'user' as const,
               content: job.request_text
-            },
-            {
-              role: 'assistant' as const,
-              content: [
-                { type: 'text', text: finalResponse },
-                block
-              ]
-            },
-            {
-              role: 'user' as const,
-              content: JSON.stringify(formattedToolResultContent)
-            }
-          ];
+            });
+          }
+          
+          // Add assistant response with tool_use block
+          updatedConversationHistory.push({
+            role: 'assistant' as const,
+            content: [
+              { type: 'text', text: finalResponse || '' },
+              block // This is the tool_use block
+            ]
+          });
+          
+          // Add user message with tool_result - this must be in proper Claude format
+          updatedConversationHistory.push({
+            role: 'user' as const,
+            content: [
+              {
+                type: 'tool_result',
+                tool_call_id: block.id,
+                content: typeof toolResult === 'string' 
+                  ? toolResult 
+                  : JSON.stringify(toolResult)
+              }
+            ]
+          });
           
           // After tool execution, update to 'tool_complete' with the result
           await updateJobStatus(job.id, 'tool_complete', {

@@ -279,40 +279,76 @@ async function processMessage(messageId: string) {
       
       logWithTimestamp(`Combined message history: ${recentMessages.length} recent messages + ${allToolRelatedMessages.length} tool-related messages`);
       
-      // Convert to Claude's message format
-      conversationMessages = allMessages.map(msg => {
+      // Convert to Claude's message format - ensuring proper tool_use and tool_result pairing
+      conversationMessages = [];
+      
+      // First, process regular messages
+      for (let i = 0; i < allMessages.length; i++) {
+        const msg = allMessages[i];
         const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
         
-        // Check if it's a tool call message
+        // Skip tool-related messages - we'll handle them specially
         if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-          // First check if the content is already a Claude-formatted message
-          try {
-            const parsedContent = JSON.parse(msg.content);
-            if (parsedContent && typeof parsedContent === 'object') {
-              return {
-                role,
-                content: parsedContent
-              };
-            }
-          } catch (e) {
-            // Not JSON, continue with normal processing
-          }
-          
-          // Handle tool calls by creating a properly formatted message
-          return {
-            role: 'assistant' as const,
-            content: [
-              { type: 'text', text: typeof msg.content === 'string' ? msg.content : 'Tool result:' },
-              ...msg.tool_calls
-            ]
-          };
+          continue;
         }
         
-        return {
+        // Add regular message
+        conversationMessages.push({
           role,
           content: msg.content
-        };
+        });
+      }
+      
+      // Then, process tool calls and their results separately to ensure proper pairing
+      for (const msg of allMessages) {
+        // Only process messages with tool calls
+        if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+          // For each tool call in the message
+          for (const toolCall of msg.tool_calls) {
+            // Find the corresponding tool result message
+            const resultMsg = allMessages.find(m => 
+              m.parent_message_id === msg.id && 
+              m.direction === 'outgoing' &&
+              (!m.tool_calls || m.tool_calls.length === 0) // Not another tool call
+            );
+            
+            // Add the tool_use message (always from assistant)
+            conversationMessages.push({
+              role: 'assistant' as const,
+              content: [
+                { type: 'text', text: typeof msg.content === 'string' ? msg.content : 'Using tool:' },
+                { ...toolCall, type: 'tool_use' }
+              ]
+            });
+            
+            // Add the tool_result message (always from user)
+            conversationMessages.push({
+              role: 'user' as const,
+              content: [
+                {
+                  type: 'tool_result',
+                  tool_call_id: toolCall.id,
+                  content: resultMsg && typeof resultMsg.content === 'string' 
+                    ? resultMsg.content 
+                    : JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+                }
+              ]
+            });
+          }
+        }
+      }
+      
+      // Sort messages by creation time to maintain conversation flow
+      conversationMessages.sort((a, b) => {
+        const aIndex = allMessages.findIndex(m => m.content === (typeof a.content === 'string' ? a.content : ''));
+        const bIndex = allMessages.findIndex(m => m.content === (typeof b.content === 'string' ? b.content : ''));
+        return aIndex - bIndex;
       });
+      
+      // De-duplicate messages
+      conversationMessages = Array.from(
+        new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
+      );
     }
     
     // Final messages array for Claude
@@ -401,6 +437,8 @@ async function processMessage(messageId: string) {
           text: block.text.substring(0, 100) + '...' // Log first 100 chars
         });
       } else if (block.type === 'tool_use') {
+        // Ensure the block has a type field set to 'tool_use'
+        block.type = 'tool_use'; // This ensures consistency even if the API changes
         logWithTimestamp('Received tool use from Claude:', {
           tool: block.name,
           arguments: block.input
@@ -441,7 +479,9 @@ async function processMessage(messageId: string) {
               direction: 'outgoing',
               content: formattedResult.text || JSON.stringify(toolResult),
               parent_message_id: messageId,
-              tool_calls: [block],
+              // Don't set tool_calls for result messages - this avoids confusion
+              // between tool_use and tool_result messages
+              tool_result_for: block.id, // Add this field to track which tool call this result is for
               status: 'pending'
             })
             .select()
@@ -450,19 +490,35 @@ async function processMessage(messageId: string) {
           logWithTimestamp('Saved tool result to database');
           
           // Update the conversation history with the tool interaction
-          messages.push(
-            {
-              role: 'assistant' as const,
-              content: [
-                { type: 'text', text: finalResponse },
-                block
-              ]
-            },
-            {
-              role: 'user' as const,
-              content: JSON.stringify(toolResult)
-            }
-          );
+          // Claude requires a specific format - tool_use blocks in assistant messages
+          // must be followed immediately by tool_result blocks in user messages with matching IDs
+          
+          // First, add the assistant message with the tool_use block
+          messages.push({
+            role: 'assistant' as const,
+            content: [
+              { type: 'text', text: finalResponse || 'Using tool:' },
+              { ...block, type: 'tool_use' } // Ensure the block has type: 'tool_use'
+            ]
+          });
+          
+          // Then immediately add the user message with the tool_result block
+          messages.push({
+            role: 'user' as const,
+            content: [
+              {
+                type: 'tool_result',
+                tool_call_id: block.id,
+                content: typeof toolResult === 'string' 
+                  ? toolResult 
+                  : JSON.stringify(toolResult)
+              }
+            ]
+          });
+          
+          // Log the tool interaction for debugging
+          logWithTimestamp(`Added tool interaction to conversation history: ${block.name}`);
+          logWithTimestamp(`Created tool_use with ID: ${block.id} and matching tool_result`);
 
           // Send immediate tool result via SMS
           if (formattedResult.text) {
@@ -492,7 +548,7 @@ async function processMessage(messageId: string) {
       });
     }
     
-    // Create response message
+    // Create response message - formatting is crucial for Claude compatibility
     await supabase
       .from('conversation_messages')
       .insert({
@@ -501,7 +557,14 @@ async function processMessage(messageId: string) {
         direction: 'outgoing',
         content: finalResponse,
         parent_message_id: messageId,
-        tool_calls: toolCalls.length > 0 ? toolCalls : null,
+        // Store tool calls in a standard format - we'll handle formatting for Claude separately
+        tool_calls: toolCalls.length > 0 ? toolCalls.map(call => ({
+          id: call.id,
+          name: call.name,
+          input: call.arguments,
+          // Do NOT include the 'type' field here - it gets added dynamically
+          // when formatting messages for Claude
+        })) : null,
         conversation_history: JSON.stringify(messages),
         status: 'completed'
       });
