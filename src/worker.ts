@@ -82,10 +82,26 @@ async function processJob(job: ConversationJob) {
     const context = determineConversationContext(job.conversation_history);
     const relevantTools = await getRelevantTools(job, goGuideClient);
     
-    console.log(`Processing job in ${context} context with ${relevantTools.length} relevant tools`);
+    // Add specific tool suggestions based on message content
+    const suggestedTools = suggestToolsForMessage(job.request_text, await goGuideClient.getTools());
+    
+    // Use a Map to deduplicate tools by name
+    const toolMap = new Map();
+    
+    // Add all tools to the map using name as key to ensure uniqueness
+    [...relevantTools, ...suggestedTools].forEach(tool => {
+      if (!toolMap.has(tool.name)) {
+        toolMap.set(tool.name, tool);
+      }
+    });
+    
+    // Convert back to array
+    const uniqueTools = Array.from(toolMap.values());
+    
+    console.log(`Processing job in ${context} context with ${uniqueTools.length} relevant unique tools`);
     
     // Convert tools to format expected by Claude
-    const tools = relevantTools.map((tool) => ({
+    const tools = uniqueTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.inputSchema,

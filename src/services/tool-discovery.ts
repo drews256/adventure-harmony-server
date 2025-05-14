@@ -70,10 +70,20 @@ export function suggestToolsForMessage(message: string, availableTools: MCPTool[
   }
   
   // Filter tools based on matched prefixes
-  return availableTools.filter(tool => {
+  const matchedTools = availableTools.filter(tool => {
     return Array.from(matchedPrefixes).some(prefix => 
       tool.name.startsWith(prefix));
   });
+  
+  // Ensure no duplicate tool names
+  const toolMap = new Map();
+  matchedTools.forEach(tool => {
+    if (!toolMap.has(tool.name)) {
+      toolMap.set(tool.name, tool);
+    }
+  });
+  
+  return Array.from(toolMap.values());
 }
 
 /**

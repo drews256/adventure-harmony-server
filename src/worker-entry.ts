@@ -215,9 +215,21 @@ async function processMessage(messageId: string) {
     
     // Add any specific tool suggestions based on the current message
     const suggestedTools = suggestToolsForMessage(message.content, await goGuideClient.getTools());
-    const combinedTools = [...new Set([...relevantTools, ...suggestedTools])];
     
-    const tools = combinedTools.map((tool) => ({
+    // Use a Map to deduplicate tools by name
+    const toolMap = new Map();
+    
+    // Add relevant tools to map (using name as key to ensure uniqueness)
+    [...relevantTools, ...suggestedTools].forEach(tool => {
+      if (!toolMap.has(tool.name)) {
+        toolMap.set(tool.name, tool);
+      }
+    });
+    
+    // Convert back to array
+    const uniqueTools = Array.from(toolMap.values());
+    
+    const tools = uniqueTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.inputSchema,
