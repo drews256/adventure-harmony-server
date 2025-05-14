@@ -134,7 +134,7 @@ async function processMessage(messageId: string) {
             arguments: block.input as Record<string, unknown>,
             tool_result: []
           });
-          logWithTimestamp('Tool execution completed:', { result: toolResult });
+          logWithTimestamp('Tool execution completed:', { result: JSON.stringify(toolResult) });
 
           // Create a new message for the tool result
           await supabase
