@@ -146,12 +146,10 @@ app.post('/analyze-message', async (req, res) => {
     for (const block of response.content) {
       if (block.type === 'text') {
         finalResponse += block.text + '\n';
-      } else if ('tool_calls' in block && Array.isArray(block.tool_calls)) {
-        toolCalls.push(block);
+      } else if (block.type === 'tool_use') {
         try {
           // Execute the tool call using MCP
-          for (const toolCall of block.tool_calls) {
-            const toolResult = await mcp.callTool(toolCall.name, JSON.parse(toolCall.parameters));
+          const toolResult = await mcp.callTool({ name: block.name, arguments: block.input as Record<string, unknown> });
             
             // Send immediate tool result via SMS if it's a text response
             if (typeof toolResult === 'object' && toolResult !== null && 'text' in toolResult) {
@@ -194,7 +192,6 @@ app.post('/analyze-message', async (req, res) => {
                 finalResponse += toolBlock.text + '\n';
               }
             }
-          }
         } catch (error: unknown) {
           console.error('Error executing tool call:', error);
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
