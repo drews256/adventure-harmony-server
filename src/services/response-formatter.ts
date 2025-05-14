@@ -119,7 +119,40 @@ export function formatToolResponse(toolName: string, result: any): FormattedTool
             const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
             
             if (typeof value === 'object') {
-              response.text += `${formattedKey}: [Complex data]\n`;
+              // Handle different types of complex data
+              if (value === null) {
+                response.text += `${formattedKey}: None\n`;
+              } 
+              else if (Array.isArray(value)) {
+                if (value.length === 0) {
+                  response.text += `${formattedKey}: Empty list\n`;
+                } else if (typeof value[0] !== 'object') {
+                  // Array of primitives - show first few items
+                  const items = value.slice(0, 3).join(', ');
+                  response.text += `${formattedKey}: ${items}${value.length > 3 ? '...' : ''} (${value.length} items)\n`;
+                } else {
+                  // Array of objects - indicate count and type
+                  const type = value[0].name || value[0].id ? 'records' : 'items';
+                  response.text += `${formattedKey}: ${value.length} ${type}\n`;
+                }
+              }
+              else if (Object.keys(value).length === 0) {
+                response.text += `${formattedKey}: Empty object\n`;
+              }
+              else if ('name' in value) {
+                response.text += `${formattedKey}: ${value.name}\n`;
+              }
+              else if ('id' in value && 'title' in value) {
+                response.text += `${formattedKey}: ${value.title} (ID: ${value.id})\n`;
+              }
+              else if ('id' in value) {
+                response.text += `${formattedKey}: ID ${value.id}\n`;
+              }
+              else {
+                // Summarize object by its keys
+                const keyCount = Object.keys(value).length;
+                response.text += `${formattedKey}: Object with ${keyCount} properties\n`;
+              }
             } else {
               response.text += `${formattedKey}: ${value}\n`;
             }
