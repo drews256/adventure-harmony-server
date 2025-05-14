@@ -8,6 +8,9 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
 dotenv.config();
 
+// Define the type for message roles
+type MessageRole = 'user' | 'assistant';
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -130,17 +133,22 @@ app.post('/process-message', async (req, res) => {
     }));
 
     // Build conversation for Claude
-    const messages = history?.map(msg => ({
-      role: msg.direction === 'incoming' ? 'user' : 'assistant' as const,
-      content: msg.content
-    })) || [];
+    const messages = history?.map(msg => {
+      const role: MessageRole = msg.direction === 'incoming' ? 'user' : 'assistant';
+      return {
+        role,
+        content: msg.content
+      };
+    }) || [];
+
+    console.log(messages);
 
     // Call Claude
     const response = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1000,
       tools,
-      messages: [...messages, { role: 'user', content }]
+      messages: [...messages, { role: 'user' as MessageRole, content }]
     });
 
     let finalResponse = '';
