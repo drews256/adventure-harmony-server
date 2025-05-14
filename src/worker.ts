@@ -88,9 +88,7 @@ async function processJob(job: ConversationJob) {
           id: block.id,
           name: block.name,
           arguments: block.input as Record<string, unknown>,
-          result: null,
-          status: 'pending',
-          error_message: null
+          tool_result: [],
         };
         toolCalls.push(toolCall);
 
@@ -120,8 +118,8 @@ async function processJob(job: ConversationJob) {
           }
 
           // Update tool call state
-          toolCall.result = toolResult;
-          toolCall.status = 'completed';
+          //toolCall.result = toolResult;
+          //toolCall.status = 'completed';
 
           // Update job status
           await updateJobStatus(job.id, 'tool_complete', {
@@ -164,8 +162,8 @@ async function processJob(job: ConversationJob) {
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
           
           // Update tool call state
-          toolCall.status = 'failed';
-          toolCall.error_message = errorMessage;
+          //toolCall.status = 'failed';
+          //toolCall.error_message = errorMessage;
 
           // Add error message to response
           finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;

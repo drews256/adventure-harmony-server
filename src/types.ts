@@ -29,7 +29,5 @@ export interface ToolCallState {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
-  result: unknown | null;
-  status: 'pending' | 'completed' | 'failed';
-  error_message: string | null;
+  tool_result: unknown | null | [];
 } 
