@@ -153,7 +153,8 @@ app.post('/analyze-message', async (req, res) => {
             { 
               id: block.id,
               name: block.name, 
-              arguments: block.input as Record<string, unknown> 
+              arguments: block.input as Record<string, unknown>,
+              tool_result: []
             }
           );
           console.log("Tool result:", toolResult);
