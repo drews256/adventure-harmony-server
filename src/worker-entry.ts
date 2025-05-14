@@ -103,7 +103,7 @@ async function processMessage(messageId: string) {
 
     let finalResponse = '';
     let toolCalls = [];
-
+    logWithTimestamp('Claude response:', response);
     logWithTimestamp('Claude content:', response.content);
 
     // Process Claude's response
