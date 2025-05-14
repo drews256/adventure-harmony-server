@@ -7,43 +7,89 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Create enum for job status
-CREATE TYPE conversation_job_status AS ENUM (
+-- Create enum for message direction
+CREATE TYPE message_direction AS ENUM (
+  'incoming',
+  'outgoing'
+);
+
+-- Create enum for message status
+CREATE TYPE message_status AS ENUM (
   'pending',
   'processing',
-  'waiting_for_tool',
-  'tool_complete',
   'completed',
   'failed'
 );
 
--- Create conversation jobs table
-CREATE TABLE conversation_jobs (
+-- Create conversation messages table
+CREATE TABLE conversation_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id UUID NOT NULL REFERENCES incoming_twilio_messages(id),
   profile_id UUID NOT NULL,
   phone_number TEXT NOT NULL,
-  request_text TEXT NOT NULL,
-  status conversation_job_status NOT NULL DEFAULT 'pending',
-  current_step INTEGER NOT NULL DEFAULT 0,
-  total_steps INTEGER NOT NULL DEFAULT 0,
-  conversation_history JSONB NOT NULL DEFAULT '[]',
-  tool_results JSONB NOT NULL DEFAULT '[]',
-  final_response TEXT,
+  direction message_direction NOT NULL,
+  content TEXT NOT NULL,
+  parent_message_id UUID REFERENCES conversation_messages(id),
+  tool_calls JSONB,
+  tool_results JSONB,
+  status message_status NOT NULL DEFAULT 'pending',
   error_message TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Add indexes
-CREATE INDEX idx_conversation_jobs_status ON conversation_jobs(status);
-CREATE INDEX idx_conversation_jobs_created_at ON conversation_jobs(created_at);
-CREATE INDEX idx_conversation_jobs_message_id ON conversation_jobs(message_id);
-CREATE INDEX idx_conversation_jobs_profile_id ON conversation_jobs(profile_id);
-CREATE INDEX idx_conversation_jobs_phone_number ON conversation_jobs(phone_number);
+CREATE INDEX idx_conversation_messages_status ON conversation_messages(status);
+CREATE INDEX idx_conversation_messages_profile_id ON conversation_messages(profile_id);
+CREATE INDEX idx_conversation_messages_phone_number ON conversation_messages(phone_number);
+CREATE INDEX idx_conversation_messages_parent ON conversation_messages(parent_message_id);
+CREATE INDEX idx_conversation_messages_direction ON conversation_messages(direction);
 
 -- Add trigger to update updated_at
-CREATE TRIGGER set_conversation_jobs_updated_at
-  BEFORE UPDATE ON conversation_jobs
+CREATE TRIGGER set_conversation_messages_updated_at
+  BEFORE UPDATE ON conversation_messages
   FOR EACH ROW
-  EXECUTE FUNCTION set_updated_at(); 
+  EXECUTE FUNCTION set_updated_at();
+
+-- Function to notify our API when a message needs processing
+CREATE OR REPLACE FUNCTION notify_message_processor()
+RETURNS TRIGGER AS $$
+DECLARE
+  webhook_url text := 'https://your-api-url/process-message';  -- Replace with your actual API URL
+  payload json;
+BEGIN
+  -- Only notify for messages that need processing
+  IF (TG_OP = 'INSERT' AND NEW.status = 'pending') OR
+     (TG_OP = 'UPDATE' AND NEW.status = 'pending' AND OLD.status != 'pending') THEN
+    
+    -- Construct the payload
+    payload := json_build_object(
+      'message_id', NEW.id,
+      'profile_id', NEW.profile_id,
+      'phone_number', NEW.phone_number,
+      'content', NEW.content,
+      'direction', NEW.direction,
+      'parent_message_id', NEW.parent_message_id,
+      'tool_results', NEW.tool_results
+    );
+
+    -- Make HTTP POST request to our API
+    PERFORM
+      net.http_post(
+        url := webhook_url,
+        body := payload::text,
+        headers := '{"Content-Type": "application/json"}'
+      );
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add trigger for message processing
+CREATE TRIGGER trigger_message_processor
+  AFTER INSERT OR UPDATE ON conversation_messages
+  FOR EACH ROW
+  EXECUTE FUNCTION notify_message_processor();
+
+-- Enable the HTTP extension if not already enabled
+CREATE EXTENSION IF NOT EXISTS "http" WITH SCHEMA "net"; 
