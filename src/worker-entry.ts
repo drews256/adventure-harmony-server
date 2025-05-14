@@ -61,16 +61,36 @@ async function processMessage(messageId: string) {
       .eq('id', messageId);
     logWithTimestamp('Updated message status to processing');
 
-    // Get conversation history
-    const { data: history } = await supabase
-      .from('conversation_messages')
-      .select('*')
-      .eq('phone_number', message.phone_number)
-      .eq('profile_id', message.profile_id)
-      .order('created_at', { ascending: true })
-      .limit(10);
+    // Get conversation history by following parent chain
+    async function getMessageChain(currentMessageId: string): Promise<any[]> {
+      const { data: messages, error } = await supabase
+        .from('conversation_messages')
+        .select('*')
+        .or(`id.eq.${currentMessageId},parent_message_id.eq.${currentMessageId}`)
+        .order('created_at', { ascending: true });
 
-    logWithTimestamp(`Retrieved ${history?.length || 0} conversation history messages`);
+      if (error) {
+        logWithTimestamp('Error fetching message chain:', error);
+        return [];
+      }
+
+      // Find the parent message if it exists
+      const parentMessage = messages?.find(msg => msg.id === currentMessageId)?.parent_message_id;
+      
+      if (parentMessage) {
+        // Recursively get parent chain
+        const parentChain = await getMessageChain(parentMessage);
+        return [...parentChain, ...messages];
+      }
+
+      return messages || [];
+    }
+
+    // Get the full conversation history
+    const history = await getMessageChain(messageId);
+    const uniqueHistory = Array.from(new Map(history.map(item => [item.id, item])).values());
+    
+    logWithTimestamp(`Retrieved ${uniqueHistory.length} messages in conversation chain`);
 
     // Connect to MCP
     const mcp = await ensureMcpConnection();
@@ -83,13 +103,13 @@ async function processMessage(messageId: string) {
     logWithTimestamp(`Connected to MCP and retrieved ${tools.length} available tools`);
 
     // Build conversation for Claude
-    const messages = history?.map(msg => {
+    const messages = uniqueHistory.map(msg => {
       const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
       return {
         role,
         content: msg.content
       };
-    }) || [];
+    });
 
     logWithTimestamp('Calling Claude with conversation history');
     // Call Claude
@@ -146,7 +166,7 @@ async function processMessage(messageId: string) {
               content: JSON.stringify(toolResult),
               parent_message_id: messageId,
               tool_calls: [block],
-              status: 'completed'
+              status: 'pending'
             });
           logWithTimestamp('Saved tool result to database');
 
