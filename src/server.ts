@@ -145,6 +145,8 @@ app.post('/analyze-message', async (req, res) => {
       .map(block => (block.type === 'text' ? block.text : ''))
       .join('\n');
 
+    console.log("Response:")
+    console.log(JSON.stringify(response, null, 2));
     console.log(responseText);
 
     // Save the user message to conversation history
