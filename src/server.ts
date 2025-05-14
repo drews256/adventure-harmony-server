@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { Anthropic } from '@anthropic-ai/sdk';
-import { MessageParam, Tool } from '@anthropic-ai/sdk/resources/messages/messages';
+import type { MessageParam, Tool, ContentBlock } from '@anthropic-ai/sdk/resources/messages/messages';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
@@ -139,15 +139,63 @@ app.post('/analyze-message', async (req, res) => {
       ],
     });
 
-    // Extract text content from response, filtering out any tool use blocks
-    const responseText = response.content
-      .filter(block => block.type === 'text')
-      .map(block => (block.type === 'text' ? block.text : ''))
-      .join('\n');
+    let finalResponse = '';
+    let toolCalls: ContentBlock[] = [];
 
-    console.log("Response:")
+    // Process each content block from Claude's response
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        finalResponse += block.text + '\n';
+      } else if ('tool_calls' in block && Array.isArray(block.tool_calls)) {
+        toolCalls.push(block);
+        try {
+          // Execute the tool call using MCP
+          for (const toolCall of block.tool_calls) {
+            const toolResult = await mcp.callTool(toolCall.name, JSON.parse(toolCall.parameters));
+            
+            // Add the tool result to the conversation
+            const toolResponse = await anthropic.messages.create({
+              model: "claude-3-5-sonnet-20241022",
+              max_tokens: 1000,
+              tools: tools,
+              messages: [
+                ...anthropicMessages,
+                {
+                  role: 'user',
+                  content: userContent
+                },
+                {
+                  role: 'assistant',
+                  content: [
+                    { type: 'text', text: finalResponse },
+                    block
+                  ]
+                },
+                {
+                  role: 'user',
+                  content: JSON.stringify(toolResult)
+                }
+              ],
+            });
+
+            // Add tool response to final response
+            for (const toolBlock of toolResponse.content) {
+              if (toolBlock.type === 'text') {
+                finalResponse += toolBlock.text + '\n';
+              }
+            }
+          }
+        } catch (error: unknown) {
+          console.error('Error executing tool call:', error);
+          const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+          finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;
+        }
+      }
+    }
+
+    console.log("Response with tool calls:");
     console.log(JSON.stringify(response, null, 2));
-    console.log(responseText);
+    console.log("Final response text:", finalResponse);
 
     // Save the user message to conversation history
     await supabase.from('claude_conversation_history').insert({
@@ -163,17 +211,19 @@ app.post('/analyze-message', async (req, res) => {
       profile_id: profileId,
       phone_number: phoneNumber,
       role: 'assistant',
-      content: responseText,
-      message_id: messageId
+      content: finalResponse,
+      message_id: messageId,
+      tool_calls: toolCalls.length > 0 ? JSON.stringify(toolCalls) : null
     });
 
     // Update analysis record with response
     await supabase
       .from('message_analysis')
       .update({
-        response_text: responseText,
+        response_text: finalResponse,
         status: 'completed',
-        analysis_completed_at: new Date().toISOString()
+        analysis_completed_at: new Date().toISOString(),
+        tool_calls: toolCalls.length > 0 ? JSON.stringify(toolCalls) : null
       })
       .eq('id', analysis.id);
 
@@ -181,13 +231,14 @@ app.post('/analyze-message', async (req, res) => {
     await supabase.functions.invoke('send-sms', {
       body: {
         to: phoneNumber,
-        message: responseText
+        message: finalResponse
       }
     });
 
     res.json({
       success: true,
-      response: responseText
+      response: finalResponse,
+      tool_calls: toolCalls
     });
 
   } catch (error) {
