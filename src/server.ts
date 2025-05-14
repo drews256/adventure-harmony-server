@@ -98,7 +98,7 @@ app.post('/analyze-message', async (req, res) => {
       .eq('phone_number', phoneNumber)
       .eq('profile_id', profileId)
       .limit(5)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
 
     if (historyError) throw historyError;
 
