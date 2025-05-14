@@ -104,7 +104,7 @@ async function processMessage(messageId: string) {
     let finalResponse = '';
     let toolCalls = [];
 
-    console.log(response.content);
+    logWithTimestamp('Claude content:', response.content);
 
     // Process Claude's response
     for (const block of response.content) {
