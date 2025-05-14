@@ -327,7 +327,7 @@ async function processMessage(messageId: string) {
               content: [
                 {
                   type: 'tool_result',
-                  tool_call_id: toolCall.id,
+                  tool_use_id: toolCall.id,
                   content: resultMsg && typeof resultMsg.content === 'string' 
                     ? resultMsg.content 
                     : JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
@@ -508,7 +508,7 @@ async function processMessage(messageId: string) {
             content: [
               {
                 type: 'tool_result',
-                tool_call_id: block.id,
+                tool_use_id: block.id,
                 content: typeof toolResult === 'string' 
                   ? toolResult 
                   : JSON.stringify(toolResult)

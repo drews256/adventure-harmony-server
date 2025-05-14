@@ -239,7 +239,7 @@ async function processJob(job: ConversationJob) {
             content: [
               {
                 type: 'tool_result',
-                tool_call_id: block.id,
+                tool_use_id: block.id,
                 content: typeof toolResult === 'string' 
                   ? toolResult 
                   : JSON.stringify(toolResult)
