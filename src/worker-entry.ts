@@ -97,6 +97,7 @@ async function processMessage(messageId: string) {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1000,
       tools,
+      tool_choice: {type: 'auto', disable_parallel_tool_use: false},
       messages: [...messages, { role: 'user' as const, content: message.content }]
     });
     logWithTimestamp('Received response from Claude');
