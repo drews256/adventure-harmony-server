@@ -8,13 +8,17 @@ const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const supabase_js_1 = require("@supabase/supabase-js");
 const sdk_1 = require("@anthropic-ai/sdk");
+const index_js_1 = require("@modelcontextprotocol/sdk/client/index.js");
+const sse_js_1 = require("@modelcontextprotocol/sdk/client/sse.js");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const port = process.env.PORT || 3000;
 // Initialize Supabase client
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = (0, supabase_js_1.createClient)(supabaseUrl, supabaseServiceKey);
+const SUPABASE_URL = "https://dhelbmzzhobadauctczs.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoZWxibXp6aG9iYWRhdWN0Y3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNjE4NjAsImV4cCI6MjA1NzgzNzg2MH0.YsAuD4nlB2dF5vNGs7itgRO21yRYx6Ge8MYeCIXDMzo";
+const supabase = (0, supabase_js_1.createClient)(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const mcp = new index_js_1.Client({ name: "mcp-client-cli", version: "1.0.0" });
+var tools = [];
 // Initialize Anthropic client
 const anthropic = new sdk_1.Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -30,10 +34,28 @@ app.get('/health', (req, res) => {
 app.post('/analyze-message', async (req, res) => {
     try {
         const { messageId, profileId, requestText } = req.body;
+        console.log(messageId, profileId, requestText);
         if (!messageId || !profileId || !requestText) {
             return res.status(400).json({
                 error: 'Missing required fields: messageId, profileId, or requestText'
             });
+        }
+        try {
+            const transport = new sse_js_1.SSEClientTransport(new URL("https://3148-63-169-127-154.ngrok-free.app/sse"));
+            await mcp.connect(transport);
+            const toolsResult = await mcp.listTools();
+            tools = toolsResult.tools.map((tool) => {
+                return {
+                    name: tool.name,
+                    description: tool.description,
+                    input_schema: tool.inputSchema,
+                };
+            });
+            console.log("Connected to server with tools:", tools.map(({ name }) => name));
+        }
+        catch (e) {
+            console.log("Failed to connect to MCP server: ", e);
+            throw e;
         }
         // Create analysis record
         const { data: analysis, error: analysisError } = await supabase
@@ -47,6 +69,7 @@ app.post('/analyze-message', async (req, res) => {
         })
             .select()
             .single();
+        console.log(analysis);
         if (analysisError)
             throw analysisError;
         // Get the phone number from the original message
@@ -55,6 +78,7 @@ app.post('/analyze-message', async (req, res) => {
             .select('from_number')
             .eq('id', messageId)
             .single();
+        console.log(message);
         if (messageError)
             throw messageError;
         const phoneNumber = message.from_number;
@@ -66,6 +90,7 @@ app.post('/analyze-message', async (req, res) => {
             .gte('start_time', new Date().toISOString())
             .order('start_time', { ascending: true })
             .limit(10);
+        console.log(events);
         if (eventsError)
             throw eventsError;
         // Fetch previous conversation history
@@ -75,6 +100,7 @@ app.post('/analyze-message', async (req, res) => {
             .eq('phone_number', phoneNumber)
             .eq('profile_id', profileId)
             .order('created_at', { ascending: true });
+        console.log(history);
         if (historyError)
             throw historyError;
         // Build message history
@@ -97,6 +123,7 @@ app.post('/analyze-message', async (req, res) => {
         const response = await anthropic.messages.create({
             model: 'claude-3-opus-20240229',
             max_tokens: 1000,
+            tools: tools,
             messages: [
                 ...anthropicMessages,
                 {
@@ -148,6 +175,7 @@ app.post('/analyze-message', async (req, res) => {
         });
     }
     catch (error) {
+        console.trace();
         console.error('Error in analyze-message endpoint:', error);
         res.status(500).json({
             error: error instanceof Error ? error.message : 'Internal server error'

@@ -2,10 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { Anthropic } from '@anthropic-ai/sdk';
-import type { MessageParam, Tool, ContentBlock } from '@anthropic-ai/sdk/resources/messages/messages';
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import type { ConversationJob } from './types';
 
 dotenv.config();
 
@@ -14,16 +11,8 @@ const port = process.env.PORT || 3000;
 
 // Initialize Supabase client
 const SUPABASE_URL = "https://dhelbmzzhobadauctczs.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoZWxibXp6aG9iYWRhdWN0Y3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNjE4NjAsImV4cCI6MjA1NzgzNzg2MH0.YsAuD4nlB2dF5vNGs7itgRO21yRYx6Ge8MYeCIXDMzo";
+const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-
-const mcp = new Client({ name: "mcp-client-cli", version: "1.0.0" });
-var tools: Tool[] = [];
-
-// Initialize Anthropic client
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-});
 
 // Middleware
 app.use(cors());
@@ -44,42 +33,6 @@ app.post('/analyze-message', async (req, res) => {
         error: 'Missing required fields: messageId, profileId, or requestText'
       });
     }
-
-    try {
-      const transport = new SSEClientTransport(new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse"));
-      await mcp.connect(transport);
-  
-      const toolsResult = await mcp.listTools();
-      tools = toolsResult.tools.map((tool) => {
-        return {
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.inputSchema,
-        };
-      });
-      console.log(
-        "Connected to server with tools:",
-        tools.map(({ name }) => name)
-      );
-    } catch (e) {
-      console.log("Failed to connect to MCP server: ", e);
-      throw e;
-    }
-
-    // Create analysis record
-    const { data: analysis, error: analysisError } = await supabase
-      .from('message_analysis')
-      .insert({
-        message_id: messageId,
-        profile_id: profileId,
-        request_text: requestText,
-        status: 'pending',
-        analysis_started_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (analysisError) throw analysisError;
 
     // Get the phone number from the original message
     const { data: message, error: messageError } = await supabase
@@ -102,163 +55,74 @@ app.post('/analyze-message', async (req, res) => {
 
     if (historyError) throw historyError;
 
-    // Build message history
-    const anthropicMessages: MessageParam[] = history?.map(msg => ({
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content
-    })) || [];
-
-    // Add the current request
-    const userContent = `Here's the context:
-      Current Request: ${requestText}
-
-      You're a helpful assistant that can help with the following tasks:
-      - Analyze the current request and provide a response
-      - Analyze the conversation history and provide a response
-      - You have access to a suite of tools to help you with the current request all against a tool that helps guides run their businesses.
-      - The person you're helping is a guide and they're running a business - most likely a hunting, fishing, or outdoor related business.
-      
-      Please analyze this information and provide a response. Remember to:
-      1. Use America/Los_Angeles timezone for all times
-      2. Format dates in a user-friendly way
-      3. Be clear about event durations
-      4. Include timezone information when relevant
-      5. Group events by date when listing multiple events`;
-
-    // Call Claude
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 1000,
-      tools: tools,
-      messages: [
-        ...anthropicMessages,
-        {
-          role: 'user',
-          content: userContent
-        }
-      ],
-    });
-
-    let finalResponse = '';
-    let toolCalls: ContentBlock[] = [];
-
-    // Process each content block from Claude's response
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        finalResponse += block.text + '\n';
-      } else if (block.type === 'tool_use') {
-        try {
-          // Execute the tool call using MCP
-          const toolResult = await mcp.callTool(
-            { 
-              id: block.id,
-              name: block.name, 
-              arguments: block.input as Record<string, unknown>,
-              tool_result: []
-            }
-          );
-          console.log("Tool result:", toolResult);
-            
-            // Send immediate tool result via SMS if it's a text response
-            if (typeof toolResult === 'object' && toolResult !== null && 'text' in toolResult) {
-              await supabase.functions.invoke('send-sms', {
-                body: {
-                  to: phoneNumber,
-                  message: `Tool result: ${toolResult.text}`
-                }
-              });
-            }
-            
-            // Add the tool result to the conversation
-            const toolResponse = await anthropic.messages.create({
-              model: "claude-3-5-sonnet-20241022",
-              max_tokens: 1000,
-              tools: tools,
-              messages: [
-                ...anthropicMessages,
-                {
-                  role: 'user',
-                  content: userContent
-                },
-                {
-                  role: 'assistant',
-                  content: [
-                    { type: 'text', text: finalResponse },
-                    block
-                  ]
-                },
-                {
-                  role: 'user',
-                  content: JSON.stringify(toolResult)
-                }
-              ],
-            });
-
-            // Add tool response to final response
-            for (const toolBlock of toolResponse.content) {
-              if (toolBlock.type === 'text') {
-                finalResponse += toolBlock.text + '\n';
-              }
-            }
-        } catch (error: unknown) {
-          console.error('Error executing tool call:', error);
-          const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-          finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;
-        }
-      }
-    }
-
-    console.log("Response with tool calls:");
-    console.log(JSON.stringify(response, null, 2));
-    console.log("Final response text:", finalResponse);
-
-    // Save the user message to conversation history
-    await supabase.from('claude_conversation_history').insert({
-      profile_id: profileId,
-      phone_number: phoneNumber,
-      role: 'user',
-      content: userContent,
-      message_id: messageId
-    });
-
-    // Save Claude's response to conversation history
-    await supabase.from('claude_conversation_history').insert({
-      profile_id: profileId,
-      phone_number: phoneNumber,
-      role: 'assistant',
-      content: finalResponse,
-      message_id: messageId,
-      tool_calls: toolCalls.length > 0 ? JSON.stringify(toolCalls) : null
-    });
-
-    // Update analysis record with response
-    await supabase
-      .from('message_analysis')
-      .update({
-        response_text: finalResponse,
-        status: 'completed',
-        analysis_completed_at: new Date().toISOString(),
-        tool_calls: toolCalls.length > 0 ? JSON.stringify(toolCalls) : null
+    // Create a new conversation job
+    const { data: job, error: jobError } = await supabase
+      .from('conversation_jobs')
+      .insert({
+        message_id: messageId,
+        profile_id: profileId,
+        phone_number: phoneNumber,
+        request_text: requestText,
+        status: 'pending',
+        current_step: 0,
+        total_steps: 0,
+        conversation_history: history || [],
+        tool_results: [],
+        final_response: null,
+        error_message: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       })
-      .eq('id', analysis.id);
+      .select()
+      .single();
 
-    // Send response back via SMS
+    if (jobError) throw jobError;
+
+    // Send acknowledgment to user
     await supabase.functions.invoke('send-sms', {
       body: {
         to: phoneNumber,
-        message: finalResponse
+        message: "I'm processing your request. I'll get back to you shortly."
       }
     });
 
     res.json({
       success: true,
-      response: finalResponse,
-      tool_calls: toolCalls
+      message: "Request accepted and being processed",
+      jobId: job.id
     });
 
   } catch (error) {
-    console.trace();
-    console.error('Error in analyze-message endpoint:', error);
+    console.error('Error creating conversation job:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// Job status endpoint
+app.get('/job/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    const { data: job, error } = await supabase
+      .from('conversation_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .single();
+
+    if (error) throw error;
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    res.json({
+      success: true,
+      job
+    });
+
+  } catch (error) {
+    console.error('Error fetching job status:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
     });

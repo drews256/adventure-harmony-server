@@ -5,7 +5,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
+    "start:worker": "node dist/worker-entry.js",
     "dev": "ts-node-dev --respawn src/server.ts",
+    "dev:worker": "ts-node-dev --respawn src/worker-entry.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
