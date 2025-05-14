@@ -5,6 +5,15 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { ConversationJob, ConversationJobStatus, ToolCallState } from './types';
 import dotenv from 'dotenv';
 
+// Import new service modules
+import { GoGuideAPIClient, createGoGuideClient } from './services/goguide-api';
+import { determineConversationContext, getRelevantTools } from './services/tool-context';
+import { cachedToolCall } from './services/cache';
+import { formatToolResponse } from './services/response-formatter';
+import { executeToolPipeline, commonPipelines } from './services/tool-pipeline';
+import { suggestToolsForMessage, addToolSuggestionsToPrompt } from './services/tool-discovery';
+import { withRetry } from './utils/retry';
+
 dotenv.config();
 
 const SUPABASE_URL = "https://dhelbmzzhobadauctczs.supabase.co";
@@ -45,35 +54,74 @@ async function updateJobStatus(
   if (error) throw error;
 }
 
+// Estimate token count for API calls
+function estimateTokenCount(messages: any[], tools: any[]): number {
+  // Simple approximation: 4 chars ≈ 1 token for English text
+  const messageText = messages
+    .map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+    .join(' ');
+  
+  const toolText = JSON.stringify(tools);
+  
+  // Calculate and return token estimate
+  return Math.ceil((messageText.length + toolText.length) / 4);
+}
+
 async function processJob(job: ConversationJob) {
   try {
     // Connect to MCP server if needed
     const mcp = await ensureMcpConnection();
-
+    
+    // Create GoGuide client
+    const goGuideClient = createGoGuideClient(mcp, supabase);
+    
     // Update job status to processing
     await updateJobStatus(job.id, 'processing');
-
-    // Get tools list
-    const toolsResult = await mcp.listTools();
-    const tools = toolsResult.tools.map((tool) => ({
+    
+    // Get conversation context and relevant tools
+    const context = determineConversationContext(job.conversation_history);
+    const relevantTools = await getRelevantTools(job, goGuideClient);
+    
+    console.log(`Processing job in ${context} context with ${relevantTools.length} relevant tools`);
+    
+    // Convert tools to format expected by Claude
+    const tools = relevantTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.inputSchema,
     }));
-
+    
+    // Prepare messages for Claude API call
+    const messageArray = [
+      ...job.conversation_history,
+      {
+        role: 'user',
+        content: job.request_text
+      }
+    ];
+    
+    // Estimate token usage
+    const estimatedTokens = estimateTokenCount(messageArray, tools);
+    console.log(`Estimated token count for Claude API call: ${estimatedTokens}`);
+    
+    // Log warning if token count is high
+    if (estimatedTokens > 30000) {
+      console.log(`WARNING: High token count (${estimatedTokens}) may exceed limits`);
+    }
+    
     // Call Claude with current conversation state
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 1000,
-      tools,
-      messages: [
-        ...job.conversation_history,
-        {
-          role: 'user',
-          content: job.request_text
-        }
-      ],
-    });
+    const response = await withRetry(
+      () => anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 1000,
+        tools,
+        messages: messageArray,
+      }),
+      {
+        maxRetries: 2,
+        retryableErrors: ['rate limit', 'timeout', 'network error']
+      }
+    );
 
     let finalResponse = '';
     let toolCalls: ToolCallState[] = [];
@@ -84,6 +132,7 @@ async function processJob(job: ConversationJob) {
         finalResponse += block.text + '\n';
       } else if (block.type === 'tool_use') {
         console.log('Tool use', block);
+        
         // Create tool call state
         const toolCall: ToolCallState = {
           id: block.id,
@@ -92,66 +141,90 @@ async function processJob(job: ConversationJob) {
           tool_result: [],
         };
         toolCalls.push(toolCall);
-
+        
         try {
-          // Update job status to waiting for tool
+          // Update job status
           await updateJobStatus(job.id, 'waiting_for_tool', {
             current_step: job.current_step + 1,
             tool_results: job.tool_results.concat(toolCall as unknown as Record<string, unknown>)
           });
-
-          // Execute tool call
-          const toolResult = await mcp.callTool({
-            id: block.id,
-            name: block.name,
-            arguments: block.input as Record<string, unknown>,
-            tool_result: []
-          });
-
-          // Send immediate tool result via SMS if it's a text response
-          if (typeof toolResult === 'object' && toolResult !== null && 'text' in toolResult) {
+          
+          // Execute tool call with caching
+          const toolResult = await cachedToolCall(
+            block.name,
+            block.input as Record<string, unknown>,
+            () => mcp.callTool({
+              id: block.id,
+              name: block.name,
+              arguments: block.input as Record<string, unknown>,
+              tool_result: []
+            })
+          );
+          
+          // Format response for better user experience
+          const formattedResult = formatToolResponse(block.name, toolResult);
+          
+          // Send immediate tool result via SMS if appropriate
+          if (formattedResult.text) {
             await supabase.functions.invoke('send-sms', {
               body: {
                 to: job.phone_number,
-                message: `Tool result: ${toolResult.text}`
+                message: formattedResult.text
               }
             });
           }
-
-          // Update tool call state
-          //toolCall.result = toolResult;
-          //toolCall.status = 'completed';
-
+          
           // Update job status
           await updateJobStatus(job.id, 'tool_complete', {
-            tool_results: job.tool_results.concat(toolCall as unknown as Record<string, unknown>)
+            tool_results: job.tool_results.concat({
+              ...toolCall,
+              tool_result: toolResult
+            } as unknown as Record<string, unknown>)
           });
-
+          
+          // Prepare messages for follow-up Claude API call
+          const toolResponseMessages = [
+            ...job.conversation_history,
+            {
+              role: 'user',
+              content: job.request_text
+            },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'text', text: finalResponse },
+                block
+              ]
+            },
+            {
+              role: 'user',
+              content: JSON.stringify(toolResult)
+            }
+          ];
+          
+          // Estimate token usage for follow-up call
+          const toolResponseTokens = estimateTokenCount(toolResponseMessages, tools);
+          console.log(`Estimated token count for tool response API call: ${toolResponseTokens}`);
+          
+          // Log warning if token count is high
+          if (toolResponseTokens > 30000) {
+            console.log(`WARNING: High token count (${toolResponseTokens}) in tool response call may exceed limits`);
+          }
+          
           // Continue conversation with tool result
-          const toolResponse = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20241022",
-            max_tokens: 1000,
-            tools,
-            messages: [
-              ...job.conversation_history,
-              {
-                role: 'user',
-                content: job.request_text
-              },
-              {
-                role: 'assistant',
-                content: [
-                  { type: 'text', text: finalResponse },
-                  block
-                ]
-              },
-              {
-                role: 'user',
-                content: JSON.stringify(toolResult)
-              }
-            ],
-          });
-
+          const toolResponse = await withRetry(
+            () => anthropic.messages.create({
+              model: "claude-3-5-sonnet-20241022",
+              max_tokens: 1000,
+              tools,
+              messages: toolResponseMessages,
+            }),
+            {
+              maxRetries: 2,
+              retryableErrors: ['rate limit', 'timeout', 'network error']
+            }
+          );
+          
           // Add tool response to final response
           for (const toolBlock of toolResponse.content) {
             if (toolBlock.type === 'text') {
@@ -162,12 +235,8 @@ async function processJob(job: ConversationJob) {
           console.error('Error executing tool call:', error);
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
           
-          // Update tool call state
-          //toolCall.status = 'failed';
-          //toolCall.error_message = errorMessage;
-
           // Add error message to response
-          finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;
+          finalResponse += `I encountered an error while trying to retrieve information: ${errorMessage}\n`;
           
           // Update job with error
           await updateJobStatus(job.id, 'processing', {
@@ -258,4 +327,4 @@ export async function startWorker() {
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
-} 
+}

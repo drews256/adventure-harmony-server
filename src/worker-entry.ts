@@ -4,6 +4,15 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import dotenv from 'dotenv';
 
+// Import new service modules
+import { GoGuideAPIClient, createGoGuideClient } from './services/goguide-api';
+import { determineConversationContext, getRelevantTools } from './services/tool-context';
+import { cachedToolCall } from './services/cache';
+import { formatToolResponse } from './services/response-formatter';
+import { executeToolPipeline, commonPipelines } from './services/tool-pipeline';
+import { suggestToolsForMessage, addToolSuggestionsToPrompt } from './services/tool-discovery';
+import { withRetry } from './utils/retry';
+
 dotenv.config();
 
 const SUPABASE_URL = "https://dhelbmzzhobadauctczs.supabase.co";
@@ -35,6 +44,92 @@ function logWithTimestamp(message: string, data?: any) {
   } else {
     console.log(`${message}`);
   }
+}
+
+// Estimate token count for API calls
+function estimateTokenCount(messages: any[], tools: any[]): number {
+  // Simple approximation: 4 chars ≈ 1 token for English text
+  const messageText = messages
+    .map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+    .join(' ');
+  
+  const toolText = JSON.stringify(tools);
+  
+  // Calculate and return token estimate
+  return Math.ceil((messageText.length + toolText.length) / 4);
+}
+
+// Filter tools based on message content
+function filterToolsByContent(allTools: any[], messageContent: string): any[] {
+  if (!messageContent || !allTools || allTools.length === 0) {
+    return allTools; // Return all tools if no message content or tools
+  }
+
+  // Convert message to lowercase for matching
+  const content = messageContent.toLowerCase();
+  
+  // Define categories of tools with their associated keywords
+  const toolCategories: Record<string, string[]> = {
+    calendar: ['calendar', 'schedule', 'appointment', 'meeting', 'event', 'reminder', 'date', 'time', 'book', 'reservation'],
+    travel: ['travel', 'trip', 'flight', 'hotel', 'car', 'book', 'reservation', 'location', 'directions', 'map'],
+    weather: ['weather', 'forecast', 'temperature', 'rain', 'snow', 'sunny', 'cloudy', 'storm', 'climate'],
+    search: ['search', 'find', 'lookup', 'information', 'data', 'about', 'what is', 'who is', 'tell me'],
+    messaging: ['message', 'send', 'text', 'email', 'contact', 'phone', 'call', 'notify', 'chat'],
+    shopping: ['buy', 'purchase', 'order', 'shop', 'price', 'cost', 'store', 'product', 'item', 'cart'],
+    food: ['food', 'restaurant', 'meal', 'eat', 'dinner', 'lunch', 'breakfast', 'recipe', 'cook', 'delivery'],
+    health: ['health', 'medical', 'doctor', 'symptom', 'medicine', 'appointment', 'fitness', 'exercise', 'workout'],
+    media: ['movie', 'music', 'song', 'artist', 'album', 'play', 'watch', 'video', 'stream', 'show', 'listen'],
+    financial: ['money', 'payment', 'bank', 'transfer', 'account', 'balance', 'transaction', 'pay', 'bill', 'cost', 'price']
+  };
+  
+  // Check which categories match the message content
+  const matchedCategories = Object.entries(toolCategories)
+    .filter(([category, keywords]) => 
+      keywords.some(keyword => content.includes(keyword))
+    )
+    .map(([category]) => category);
+  
+  logWithTimestamp(`Message matches categories: ${matchedCategories.join(', ') || 'none'}`);
+  
+  // If no categories match, return a basic set of tools
+  if (matchedCategories.length === 0) {
+    // Return a small subset of essential tools (roughly 20% of all tools)
+    const essentialTools = allTools.filter((tool, index) => index % 5 === 0);
+    logWithTimestamp(`No specific categories matched. Returning ${essentialTools.length} essential tools`);
+    return essentialTools;
+  }
+  
+  // Filter tools based on matched categories
+  const relevantTools = allTools.filter(tool => {
+    const toolName = tool.name.toLowerCase();
+    const toolDesc = tool.description?.toLowerCase() || '';
+    
+    // Check if tool matches any of the identified categories
+    return matchedCategories.some(category => {
+      // Check if tool name or description contains the category name
+      if (toolName.includes(category) || toolDesc.includes(category)) {
+        return true;
+      }
+      
+      // Check if tool matches keywords for this category
+      return toolCategories[category].some(keyword => 
+        toolName.includes(keyword) || toolDesc.includes(keyword)
+      );
+    });
+  });
+  
+  // Make sure we don't filter out too many tools
+  if (relevantTools.length < allTools.length * 0.1) {
+    // If we've filtered too aggressively, add more tools back
+    const additionalTools = allTools
+      .filter(tool => !relevantTools.includes(tool))
+      .slice(0, Math.floor(allTools.length * 0.2));
+      
+    logWithTimestamp(`Adding ${additionalTools.length} additional tools to complement the ${relevantTools.length} relevant ones`);
+    return [...relevantTools, ...additionalTools];
+  }
+  
+  return relevantTools;
 }
 
 async function processMessage(messageId: string) {
@@ -92,16 +187,6 @@ async function processMessage(messageId: string) {
     
     logWithTimestamp(`Retrieved ${uniqueHistory.length} messages in conversation chain`);
 
-    // Connect to MCP
-    const mcp = await ensureMcpConnection();
-    const toolsResult = await mcp.listTools();
-    const tools = toolsResult.tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.inputSchema,
-    }));
-    logWithTimestamp(`Connected to MCP and retrieved ${tools.length} available tools`);
-
     // Build conversation for Claude
     const messages = uniqueHistory.map(msg => {
       const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
@@ -110,16 +195,60 @@ async function processMessage(messageId: string) {
         content: msg.content
       };
     });
+    
+    // Connect to MCP
+    const mcp = await ensureMcpConnection();
+    
+    // Create GoGuide client
+    const goGuideClient = createGoGuideClient(mcp, supabase);
+    
+    // Get conversation context from the message history
+    const messageContext = determineConversationContext(messages);
+    logWithTimestamp(`Identified conversation context: ${messageContext}`);
+    
+    // Get relevant tools based on context
+    const relevantTools = await getRelevantTools({ 
+      ...message, 
+      conversation_history: messages,
+      request_text: message.content
+    }, goGuideClient);
+    
+    // Add any specific tool suggestions based on the current message
+    const suggestedTools = suggestToolsForMessage(message.content, await goGuideClient.getTools());
+    const combinedTools = [...new Set([...relevantTools, ...suggestedTools])];
+    
+    const tools = combinedTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema,
+    }));
+    
+    logWithTimestamp(`Connected to MCP and prepared ${tools.length} relevant tools for context: ${messageContext}`);
 
+    const messageWithCurrentContent = [...messages, { role: 'user' as const, content: message.content }];
+    const estimatedTokens = estimateTokenCount(messageWithCurrentContent, tools);
+    logWithTimestamp(`Estimated token count for Claude API call: ${estimatedTokens}`);
+    
+    // Log warning if token count is high
+    if (estimatedTokens > 30000) {
+      logWithTimestamp(`WARNING: High token count (${estimatedTokens}) may exceed limits`);
+    }
+    
     logWithTimestamp('Calling Claude with conversation history');
-    // Call Claude
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 1000,
-      tools,
-      tool_choice: {type: 'auto', disable_parallel_tool_use: false},
-      messages: [...messages, { role: 'user' as const, content: message.content }]
-    });
+    // Call Claude with retry logic
+    const response = await withRetry(
+      () => anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 1000,
+        tools,
+        tool_choice: {type: 'auto', disable_parallel_tool_use: false},
+        messages: messageWithCurrentContent
+      }),
+      {
+        maxRetries: 2,
+        retryableErrors: ['rate limit', 'timeout', 'network error']
+      }
+    );
     logWithTimestamp('Received response from Claude');
 
     let finalResponse = '';
@@ -146,15 +275,24 @@ async function processMessage(messageId: string) {
         });
         
         try {
-          // Execute tool call
+          // Execute tool call with caching
           logWithTimestamp(`Executing tool: ${block.name}`);
-          const toolResult = await mcp.callTool({
-            id: block.id,
-            name: block.name,
-            arguments: block.input as Record<string, unknown>,
-            tool_result: []
+          const toolResult = await cachedToolCall(
+            block.name,
+            block.input as Record<string, unknown>,
+            () => mcp.callTool({
+              id: block.id,
+              name: block.name,
+              arguments: block.input as Record<string, unknown>,
+              tool_result: []
+            })
+          );
+          
+          // Format the tool result for better user experience
+          const formattedResult = formatToolResponse(block.name, toolResult);
+          logWithTimestamp('Tool execution completed:', { 
+            result: JSON.stringify(toolResult).substring(0, 200) + '...' 
           });
-          logWithTimestamp('Tool execution completed:', { result: JSON.stringify(toolResult) });
 
           // Create a new message for the tool result
           await supabase
@@ -163,20 +301,20 @@ async function processMessage(messageId: string) {
               profile_id: message.profile_id,
               phone_number: message.phone_number,
               direction: 'outgoing',
-              content: JSON.stringify(toolResult),
+              content: formattedResult.text || JSON.stringify(toolResult),
               parent_message_id: messageId,
               tool_calls: [block],
               status: 'pending'
             });
           logWithTimestamp('Saved tool result to database');
 
-          // Send immediate tool result via SMS if it's a text response
-          if (typeof toolResult === 'object' && toolResult !== null && 'text' in toolResult) {
-            logWithTimestamp('Sending tool result via SMS');
+          // Send immediate tool result via SMS
+          if (formattedResult.text) {
+            logWithTimestamp('Sending formatted tool result via SMS');
             await supabase.functions.invoke('send-sms', {
               body: {
                 to: message.phone_number,
-                message: `Tool result: ${toolResult.text}`
+                message: formattedResult.text
               }
             });
           }

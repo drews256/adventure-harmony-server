@@ -6,6 +6,10 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
+// Import new service modules
+import { createGoGuideClient } from './services/goguide-api';
+import { withRetry } from './utils/retry';
+
 dotenv.config();
 
 // Define the type for message roles
