@@ -151,6 +151,7 @@ app.post('/analyze-message', async (req, res) => {
           // Execute the tool call using MCP
           const toolResult = await mcp.callTool(
             { 
+              id: block.id,
               name: block.name, 
               arguments: block.input as Record<string, unknown> 
             }
