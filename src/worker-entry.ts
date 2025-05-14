@@ -248,19 +248,36 @@ async function processMessage(messageId: string) {
       logWithTimestamp('Building conversation history from message chain');
       
       // First, get all tool interactions to ensure they're included
-      const toolInteractions = uniqueHistory.filter(msg => msg.tool_calls !== null && msg.tool_calls.length > 0);
+      const toolInteractions = uniqueHistory.filter(msg => 
+        (msg.tool_calls !== null && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) ||
+        (msg.content && (
+          typeof msg.content === 'string' && msg.content.includes('tool_result') ||
+          typeof msg.content === 'string' && msg.content.includes('Tool result')
+        ))
+      );
+      
+      // Also get tool results - messages that were created in response to tool calls
+      const toolResultMessages = uniqueHistory.filter(msg => 
+        msg.parent_message_id && 
+        toolInteractions.some(ti => ti.id === msg.parent_message_id)
+      );
+      
+      // Combine tool interactions and their results
+      const allToolRelatedMessages = [...toolInteractions, ...toolResultMessages];
       
       // Include all messages but prioritize most recent ones
       const recentMessages = uniqueHistory
-        .filter(msg => !toolInteractions.some(ti => ti.id === msg.id)) // exclude tool interactions to avoid duplication
+        .filter(msg => !allToolRelatedMessages.some(ti => ti.id === msg.id)) // exclude tool interactions to avoid duplication
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 10) // Take most recent 10 messages
+        .slice(0, 10) // Take most recent 10 regular messages
         .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()); // Sort back in chronological order
       
       // Combine and convert to Claude format
-      const allMessages = [...recentMessages, ...toolInteractions].sort(
+      const allMessages = [...recentMessages, ...allToolRelatedMessages].sort(
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       );
+      
+      logWithTimestamp(`Combined message history: ${recentMessages.length} recent messages + ${allToolRelatedMessages.length} tool-related messages`);
       
       // Convert to Claude's message format
       conversationMessages = allMessages.map(msg => {

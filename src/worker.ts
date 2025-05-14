@@ -195,6 +195,15 @@ async function processJob(job: ConversationJob) {
           const formattedToolResult = formatToolResponse(block.name, toolResult);
           
           // Create updated conversation history including this tool interaction
+          // For the tool result, create a more detailed representation that's easier to parse
+          const formattedToolResultContent = {
+            type: "tool_result",
+            tool_name: block.name,
+            tool_input: block.input,
+            result: toolResult,
+            formatted_result: formattedResult.text
+          };
+          
           const updatedConversationHistory = [
             ...job.conversation_history,
             {
@@ -210,7 +219,7 @@ async function processJob(job: ConversationJob) {
             },
             {
               role: 'user' as const,
-              content: JSON.stringify(toolResult)
+              content: JSON.stringify(formattedToolResultContent)
             }
           ];
           
