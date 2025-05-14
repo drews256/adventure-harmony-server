@@ -27,7 +27,18 @@ async function ensureMcpConnection() {
   return mcpClient;
 }
 
+// Add timestamp to logs
+function logWithTimestamp(message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.log(`[${timestamp}] ${message}`, data);
+  } else {
+    console.log(`[${timestamp}] ${message}`);
+  }
+}
+
 async function processMessage(messageId: string) {
+  logWithTimestamp(`Starting to process message: ${messageId}`);
   try {
     // Get the message to process
     const { data: message, error: messageError } = await supabase
@@ -37,12 +48,18 @@ async function processMessage(messageId: string) {
       .single();
 
     if (messageError) throw messageError;
+    logWithTimestamp('Retrieved message details:', {
+      id: message.id,
+      direction: message.direction,
+      content: message.content.substring(0, 100) + '...' // Log first 100 chars
+    });
 
     // Update status to processing
     await supabase
       .from('conversation_messages')
       .update({ status: 'processing' })
       .eq('id', messageId);
+    logWithTimestamp('Updated message status to processing');
 
     // Get conversation history
     const { data: history } = await supabase
@@ -53,6 +70,8 @@ async function processMessage(messageId: string) {
       .order('created_at', { ascending: true })
       .limit(10);
 
+    logWithTimestamp(`Retrieved ${history?.length || 0} conversation history messages`);
+
     // Connect to MCP
     const mcp = await ensureMcpConnection();
     const toolsResult = await mcp.listTools();
@@ -61,6 +80,7 @@ async function processMessage(messageId: string) {
       description: tool.description,
       input_schema: tool.inputSchema,
     }));
+    logWithTimestamp(`Connected to MCP and retrieved ${tools.length} available tools`);
 
     // Build conversation for Claude
     const messages = history?.map(msg => {
@@ -71,6 +91,7 @@ async function processMessage(messageId: string) {
       };
     }) || [];
 
+    logWithTimestamp('Calling Claude with conversation history');
     // Call Claude
     const response = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
@@ -78,6 +99,7 @@ async function processMessage(messageId: string) {
       tools,
       messages: [...messages, { role: 'user' as const, content: message.content }]
     });
+    logWithTimestamp('Received response from Claude');
 
     let finalResponse = '';
     let toolCalls = [];
@@ -86,17 +108,26 @@ async function processMessage(messageId: string) {
     for (const block of response.content) {
       if (block.type === 'text') {
         finalResponse += block.text + '\n';
+        logWithTimestamp('Received text response from Claude:', {
+          text: block.text.substring(0, 100) + '...' // Log first 100 chars
+        });
       } else if (block.type === 'tool_use') {
         toolCalls.push(block);
+        logWithTimestamp('Received tool call from Claude:', {
+          tool: block.name,
+          arguments: block.input
+        });
         
         try {
           // Execute tool call
+          logWithTimestamp(`Executing tool: ${block.name}`);
           const toolResult = await mcp.callTool({
             id: block.id,
             name: block.name,
             arguments: block.input as Record<string, unknown>,
             tool_result: []
           });
+          logWithTimestamp('Tool execution completed:', { result: toolResult });
 
           // Create a new message for the tool result
           await supabase
@@ -110,9 +141,11 @@ async function processMessage(messageId: string) {
               tool_calls: [block],
               status: 'completed'
             });
+          logWithTimestamp('Saved tool result to database');
 
           // Send immediate tool result via SMS if it's a text response
           if (typeof toolResult === 'object' && toolResult !== null && 'text' in toolResult) {
+            logWithTimestamp('Sending tool result via SMS');
             await supabase.functions.invoke('send-sms', {
               body: {
                 to: message.phone_number,
@@ -123,11 +156,13 @@ async function processMessage(messageId: string) {
         } catch (error) {
           console.error('Error executing tool call:', error);
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+          logWithTimestamp('Tool execution failed:', { error: errorMessage });
           finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;
         }
       }
     }
 
+    logWithTimestamp('Creating final response message');
     // Create response message
     await supabase
       .from('conversation_messages')
@@ -146,9 +181,11 @@ async function processMessage(messageId: string) {
       .from('conversation_messages')
       .update({ status: 'completed' })
       .eq('id', messageId);
+    logWithTimestamp('Updated original message status to completed');
 
     // Send response via SMS
     if (finalResponse) {
+      logWithTimestamp('Sending final response via SMS');
       await supabase.functions.invoke('send-sms', {
         body: {
           to: message.phone_number,
@@ -157,8 +194,11 @@ async function processMessage(messageId: string) {
       });
     }
 
+    logWithTimestamp(`Successfully completed processing message: ${messageId}`);
+
   } catch (error) {
     console.error('Error processing message:', error);
+    logWithTimestamp(`Error processing message ${messageId}:`, { error });
     
     // Update message status to failed
     await supabase
@@ -173,6 +213,7 @@ async function processMessage(messageId: string) {
 
 // Main worker loop
 async function workerLoop() {
+  logWithTimestamp('Worker loop started');
   while (true) {
     try {
       // Get pending messages
@@ -184,19 +225,22 @@ async function workerLoop() {
         .limit(1);
 
       if (error) {
-        console.error('Error fetching pending messages:', error);
+        logWithTimestamp('Error fetching pending messages:', { error });
         continue;
       }
 
       if (pendingMessages && pendingMessages.length > 0) {
         const message = pendingMessages[0];
+        logWithTimestamp(`Found pending message: ${message.id}`);
         await processMessage(message.id);
+      } else {
+        logWithTimestamp('No pending messages found, waiting...');
       }
 
       // Small delay to prevent hammering the database
       await new Promise(resolve => setTimeout(resolve, 1000));
     } catch (error) {
-      console.error('Error in worker loop:', error);
+      logWithTimestamp('Error in worker loop:', { error });
       // Add delay on error to prevent rapid retries
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
@@ -204,8 +248,8 @@ async function workerLoop() {
 }
 
 // Start the worker
-console.log('Starting message processing worker...');
+logWithTimestamp('Starting message processing worker...');
 workerLoop().catch(error => {
-  console.error('Fatal error in worker:', error);
+  logWithTimestamp('Fatal error in worker:', { error });
   process.exit(1);
 }); 
