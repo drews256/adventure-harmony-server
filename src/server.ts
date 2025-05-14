@@ -153,6 +153,16 @@ app.post('/analyze-message', async (req, res) => {
           for (const toolCall of block.tool_calls) {
             const toolResult = await mcp.callTool(toolCall.name, JSON.parse(toolCall.parameters));
             
+            // Send immediate tool result via SMS if it's a text response
+            if (typeof toolResult === 'object' && toolResult !== null && 'text' in toolResult) {
+              await supabase.functions.invoke('send-sms', {
+                body: {
+                  to: phoneNumber,
+                  message: `Tool result: ${toolResult.text}`
+                }
+              });
+            }
+            
             // Add the tool result to the conversation
             const toolResponse = await anthropic.messages.create({
               model: "claude-3-5-sonnet-20241022",
