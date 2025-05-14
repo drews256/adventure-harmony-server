@@ -310,7 +310,7 @@ async function processMessage(messageId: string) {
           });
 
           // Create a new message for the tool result
-          await supabase
+          const { data: toolResultMessage } = await supabase
             .from('conversation_messages')
             .insert({
               profile_id: message.profile_id,
@@ -319,9 +319,27 @@ async function processMessage(messageId: string) {
               content: formattedResult.text || JSON.stringify(toolResult),
               parent_message_id: messageId,
               tool_calls: [block],
-              status: 'pending'
-            });
+              status: 'completed'
+            })
+            .select()
+            .single();
+          
           logWithTimestamp('Saved tool result to database');
+          
+          // Update the conversation history with the tool interaction
+          messages.push(
+            {
+              role: 'assistant' as const,
+              content: [
+                { type: 'text', text: finalResponse },
+                block
+              ]
+            },
+            {
+              role: 'user' as const,
+              content: JSON.stringify(toolResult)
+            }
+          );
 
           // Send immediate tool result via SMS
           if (formattedResult.text) {
@@ -343,6 +361,14 @@ async function processMessage(messageId: string) {
     }
 
     logWithTimestamp('Creating final response message');
+    // Add the final response to conversation history
+    if (finalResponse.trim()) {
+      messages.push({
+        role: 'assistant' as const,
+        content: finalResponse
+      });
+    }
+    
     // Create response message
     await supabase
       .from('conversation_messages')
@@ -353,6 +379,7 @@ async function processMessage(messageId: string) {
         content: finalResponse,
         parent_message_id: messageId,
         tool_calls: toolCalls.length > 0 ? toolCalls : null,
+        conversation_history: JSON.stringify(messages),
         status: 'completed'
       });
 

@@ -191,16 +191,11 @@ async function processJob(job: ConversationJob) {
             });
           }
           
-          // Update job status
-          await updateJobStatus(job.id, 'tool_complete', {
-            tool_results: job.tool_results.concat({
-              ...toolCall,
-              tool_result: toolResult
-            } as unknown as Record<string, unknown>)
-          });
+          // Format the tool result for better readability
+          const formattedToolResult = formatToolResponse(block.name, toolResult);
           
-          // Prepare messages for follow-up Claude API call
-          const toolResponseMessages = [
+          // Create updated conversation history including this tool interaction
+          const updatedConversationHistory = [
             ...job.conversation_history,
             {
               role: 'user' as const,
@@ -218,6 +213,18 @@ async function processJob(job: ConversationJob) {
               content: JSON.stringify(toolResult)
             }
           ];
+          
+          // Update job with the new conversation history and tool result
+          await updateJobStatus(job.id, 'tool_complete', {
+            tool_results: job.tool_results.concat({
+              ...toolCall,
+              tool_result: toolResult
+            } as unknown as Record<string, unknown>),
+            conversation_history: updatedConversationHistory
+          });
+          
+          // Prepare messages for follow-up Claude API call
+          const toolResponseMessages = updatedConversationHistory;
           
           // Estimate token usage for follow-up call
           const toolResponseTokens = estimateTokenCount(toolResponseMessages, tools);
@@ -244,10 +251,29 @@ async function processJob(job: ConversationJob) {
           
           // Add tool response to final response
           const toolResponseContent = (toolResponse as any).content;
+          let toolResponseText = '';
+          
           for (const toolBlock of toolResponseContent) {
             if (toolBlock.type === 'text') {
+              toolResponseText += toolBlock.text + '\n';
               finalResponse += toolBlock.text + '\n';
             }
+          }
+          
+          // Update conversation history again with Claude's response to the tool result
+          if (toolResponseText.trim()) {
+            updatedConversationHistory.push({
+              role: 'assistant' as const,
+              content: toolResponseText
+            });
+            
+            // Update the job with the newest conversation history
+            await updateJobStatus(job.id, 'processing', {
+              conversation_history: updatedConversationHistory
+            });
+            
+            // Update the local job object to keep it in sync
+            job.conversation_history = updatedConversationHistory;
           }
         } catch (error) {
           console.error('Error executing tool call:', error);
@@ -283,9 +309,10 @@ async function processJob(job: ConversationJob) {
       }
     ]);
 
-    // Update job as completed
+    // Update job as completed with the final conversation history
     await updateJobStatus(job.id, 'completed', {
-      final_response: finalResponse
+      final_response: finalResponse,
+      conversation_history: job.conversation_history
     });
 
     // Send final response via SMS
