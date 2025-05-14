@@ -31,9 +31,9 @@ async function ensureMcpConnection() {
 function logWithTimestamp(message: string, data?: any) {
   const timestamp = new Date().toISOString();
   if (data) {
-    console.log(`[${timestamp}] ${message}`, data);
+    console.log(`${message}`, data);
   } else {
-    console.log(`[${timestamp}] ${message}`);
+    console.log(`${message}`);
   }
 }
 
