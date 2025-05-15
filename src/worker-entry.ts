@@ -360,8 +360,6 @@ async function processMessage(messageId: string) {
           maxDepth
         );
         
-        console.log('----------- message chain ---------------')
-        console.log([...parentChain, ...messages])
         // Combine parent chain with current messages
         return [...parentChain, ...messages];
       }
@@ -619,6 +617,8 @@ async function processMessage(messageId: string) {
         }
       }
       
+      console.log('----------- fixed conversation ---------------')
+      console.log(fixedConversation)
       // Replace the conversation with the fixed version
       conversationMessages = fixedConversation;
     }
@@ -722,8 +722,6 @@ async function processMessage(messageId: string) {
     }
     
     logWithTimestamp('Calling Claude with cleaned conversation history');
-    
-    console.log('Sending messages to Claude with the following history content:', messageWithCurrentContent.map(m => m.content));
     
     // Call Claude with retry logic
     const response = await withRetry(
