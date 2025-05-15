@@ -412,21 +412,10 @@ async function processJob(job: ConversationJob) {
     let finalResponse = '';
     let toolCalls: ToolCallState[] = [];
 
-    // Check if the response contains a stop_reason
-    if ((response as any).stop_reason) {
+    // Check if the response contains a stop_reason and log it
+    const hasStopReason = (response as any).stop_reason !== undefined;
+    if (hasStopReason) {
       console.log(`Response contains stop_reason: ${(response as any).stop_reason}`);
-      // If stop_reason is present, skip tool execution and return the text response immediately
-      
-      // Get the text content from the response
-      const responseContent = (response as any).content;
-      for (const block of responseContent) {
-        if (block.type === 'text') {
-          finalResponse += block.text + '\n';
-        }
-      }
-      
-      // Skip the rest of processing
-      return await completeJobWithResponse(job, finalResponse);
     }
     
     // Process each content block - type assertion needed since API types are complex
@@ -578,64 +567,75 @@ async function processJob(job: ConversationJob) {
           const validatedToolResponseHistory = validateAndFixConversationHistory(updatedConversationHistory);
           const toolResponseMessages = cleanConversationHistory(validatedToolResponseHistory);
           
-          // Estimate token usage for follow-up call
-          const toolResponseTokens = estimateTokenCount(toolResponseMessages, tools);
-          console.log(`Estimated token count for tool response API call: ${toolResponseTokens}`);
-          
-          // Log warning if token count is high
-          if (toolResponseTokens > 30000) {
-            console.log(`WARNING: High token count (${toolResponseTokens}) in tool response call may exceed limits`);
-          }
-          
-          // For the follow-up call, only include the specific tool that was just used
-          // This drastically reduces context size
-          const specificTool = tools.find(tool => tool.name === block.name);
-          const toolsToUse = specificTool ? [specificTool] : tools;
-          
-          console.log(`Using ${toolsToUse.length === 1 ? 'single specific tool' : 'all tools'} for follow-up call`);
+          // Check if we should make a follow-up call based on stop_reason
+          if (hasStopReason) {
+            console.log(`Skipping follow-up Claude call due to stop_reason: ${(response as any).stop_reason}`);
+            
+            // Add formatted tool result directly to the final response
+            const formattedResponse = `Here's what I found: ${formattedResult.text || 'No specific data found.'}`;
+            finalResponse += formattedResponse + '\n';
+            
+            // Continue to next tool or complete processing without follow-up call
+          } else {
+            // Estimate token usage for follow-up call
+            const toolResponseTokens = estimateTokenCount(toolResponseMessages, tools);
+            console.log(`Estimated token count for tool response API call: ${toolResponseTokens}`);
+            
+            // Log warning if token count is high
+            if (toolResponseTokens > 30000) {
+              console.log(`WARNING: High token count (${toolResponseTokens}) in tool response call may exceed limits`);
+            }
+            
+            // For the follow-up call, only include the specific tool that was just used
+            // This drastically reduces context size
+            const specificTool = tools.find(tool => tool.name === block.name);
+            const toolsToUse = specificTool ? [specificTool] : tools;
+            
+            console.log(`Using ${toolsToUse.length === 1 ? 'single specific tool' : 'all tools'} for follow-up call`);
 
-          console.log('Sending tool response messages to Claude');
-          console.log(toolResponseMessages);
-          
-          // Continue conversation with tool result
-          const toolResponse = await withRetry(
-            () => anthropic.messages.create({
-              model: "claude-3-5-sonnet-20241022",
-              max_tokens: 1000,
-              tools: toolsToUse,
-              messages: toolResponseMessages,
-            }),
-            {
-              maxRetries: 2,
-              retryableErrors: ['rate limit', 'timeout', 'network error']
-            }
-          );
-          
-          // Add tool response to final response
-          const toolResponseContent = (toolResponse as any).content;
-          let toolResponseText = '';
-          
-          for (const toolBlock of toolResponseContent) {
-            if (toolBlock.type === 'text') {
-              toolResponseText += toolBlock.text + '\n';
-              finalResponse += toolBlock.text + '\n';
-            }
-          }
-          
-          // Update conversation history again with Claude's response to the tool result
-          if (toolResponseText.trim()) {
-            updatedConversationHistory.push({
-              role: 'assistant' as const,
-              content: toolResponseText
-            });
+            console.log('Sending tool response messages to Claude');
+            console.log(toolResponseMessages);
             
-            // Update the job with the newest conversation history
-            await updateJobStatus(job.id, 'processing', {
-              conversation_history: updatedConversationHistory
-            });
+            // Continue conversation with tool result
+            const toolResponse = await withRetry(
+              () => anthropic.messages.create({
+                model: "claude-3-5-sonnet-20241022",
+                max_tokens: 1000,
+                tools: toolsToUse,
+                messages: toolResponseMessages,
+              }),
+              {
+                maxRetries: 2,
+                retryableErrors: ['rate limit', 'timeout', 'network error']
+              }
+            );
             
-            // Update the local job object to keep it in sync
-            job.conversation_history = updatedConversationHistory;
+            // Add tool response to final response
+            const toolResponseContent = (toolResponse as any).content;
+            let toolResponseText = '';
+            
+            for (const toolBlock of toolResponseContent) {
+              if (toolBlock.type === 'text') {
+                toolResponseText += toolBlock.text + '\n';
+                finalResponse += toolBlock.text + '\n';
+              }
+            }
+            
+            // Update conversation history again with Claude's response to the tool result
+            if (toolResponseText.trim()) {
+              updatedConversationHistory.push({
+                role: 'assistant' as const,
+                content: toolResponseText
+              });
+              
+              // Update the job with the newest conversation history
+              await updateJobStatus(job.id, 'processing', {
+                conversation_history: updatedConversationHistory
+              });
+              
+              // Update the local job object to keep it in sync
+              job.conversation_history = updatedConversationHistory;
+            }
           }
         } catch (error) {
           console.error('Error executing tool call:', error);
