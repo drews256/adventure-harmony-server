@@ -705,23 +705,6 @@ async function processMessage(messageId: string) {
     // The previous sorting approach wouldn't work well with tool use/result messages anyway
     logWithTimestamp(`Final conversation history contains ${conversationMessages.length} messages`);
     
-    // Debug last message to ensure proper pairing
-    if (conversationMessages.length >= 2) {
-      const lastTwoMessages = conversationMessages.slice(-2);
-      logWithTimestamp('Last two messages in history:', {
-        secondLast: {
-          role: lastTwoMessages[0].role,
-          contentType: typeof lastTwoMessages[0].content === 'string' ? 'text' : 'array',
-          content: lastTwoMessages[0].content
-        },
-        last: {
-          role: lastTwoMessages[1].role,
-          contentType: typeof lastTwoMessages[1].content === 'string' ? 'text' : 'array',
-          content: lastTwoMessages[1].content
-        }
-      });
-    }
-    
     // De-duplicate messages
     conversationMessages = Array.from(
       new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
@@ -777,6 +760,7 @@ async function processMessage(messageId: string) {
     
     // Clean conversation history to reduce token usage
     const cleanedMessages = cleanConversationHistory(validatedMessages);
+    console.log('Cleaned messages:', JSON.stringify(cleanedMessages, null, 2));
     const messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: message.content }];
     
     const estimatedTokens = estimateTokenCount(messageWithCurrentContent, tools);
