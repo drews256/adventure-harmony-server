@@ -617,8 +617,6 @@ async function processMessage(messageId: string) {
         }
       }
       
-      console.log('----------- fixed conversation ---------------')
-      console.log(fixedConversation)
       // Replace the conversation with the fixed version
       conversationMessages = fixedConversation;
     }
@@ -660,6 +658,9 @@ async function processMessage(messageId: string) {
     conversationMessages = Array.from(
       new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
     );
+
+    console.log('----------- conversation messages ---------------')
+    console.log(conversationMessages)
     
     // Final messages array for Claude
     const messages = conversationMessages;
