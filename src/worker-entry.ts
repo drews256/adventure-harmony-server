@@ -13,6 +13,13 @@ import { executeToolPipeline, commonPipelines } from './services/tool-pipeline';
 import { suggestToolsForMessage, addToolSuggestionsToPrompt } from './services/tool-discovery';
 import { withRetry } from './utils/retry';
 
+// Import the simplified tool handlers
+import { 
+  buildConversationHistoryWithTools,
+  formatToolResponsesForClaude,
+  processToolCallsFromClaude
+} from './simplified-tool-handler';
+
 dotenv.config();
 
 const SUPABASE_URL = "https://dhelbmzzhobadauctczs.supabase.co";
@@ -401,236 +408,11 @@ async function processMessage(messageId: string) {
     );
     
     
-    // Convert to Claude's message format - ensuring proper tool_use and tool_result pairing
-    conversationMessages = [];
-    
-    // First, we'll collect the tool calls and their results in a structured way
-    const toolCallMap = new Map();
-    
-    // Find all tool calls first
-    for (const msg of allMessages) {
-      if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-        for (const toolCall of msg.tool_calls) {
-          toolCallMap.set(toolCall.id, {
-            toolCall,
-            message: msg,
-            result: null
-          });
-        }
-      }
-    }
-    
-    // Match tool results to their corresponding tool calls
-    for (const msg of allMessages) {
-      if (msg.tool_result_for && toolCallMap.has(msg.tool_result_for)) {
-        const entry = toolCallMap.get(msg.tool_result_for);
-        entry.result = msg;
-      }
-    }
-    
-    // Also check for parent-child relationships for tool results
-    for (const msg of allMessages) {
-      if (msg.parent_message_id) {
-        const parentMsg = allMessages.find(m => m.id === msg.parent_message_id);
-        if (parentMsg && parentMsg.tool_calls && Array.isArray(parentMsg.tool_calls) && parentMsg.tool_calls.length > 0) {
-          // This might be a tool result for a parent with tool calls
-          // If we don't already have a result, use this one
-          for (const toolCall of parentMsg.tool_calls) {
-            if (toolCallMap.has(toolCall.id)) {
-              const entry = toolCallMap.get(toolCall.id);
-              if (!entry.result && msg.direction === 'outgoing') {
-                entry.result = msg;
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // Simple approach: first add all text messages (non-tool messages)
-    // For each message, check if it's a regular text message (not a tool call/result)
-    for (const msg of allMessages) {
-      // Skip if this is a tool call or tool result message - we'll handle those separately
-      if ((msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) ||
-          (msg.tool_result_for)) {
-        continue;
-      }
-      
-      // Add all regular text messages (both user and assistant)
-      const role = msg.direction === 'incoming' ? 'user' : 'assistant';
-      
-      // Add the message
-      conversationMessages.push({
-        role,
-        content: msg.content
-      });
-    }
-    
-    // Now add tool interactions in proper sequential pairs
-    
-    // Convert the map to array and sort by message creation time to preserve chronological order
-    const allToolInteractions = Array.from(toolCallMap.values())
-      .sort((a, b) => {
-        const aTime = new Date(a.message.created_at).getTime();
-        const bTime = new Date(b.message.created_at).getTime();
-        return aTime - bTime;
-      });
-    
-    for (const interaction of allToolInteractions) {
-      const { toolCall, message, result } = interaction;
-      
-      // 1. First add the assistant message with tool_use
-      conversationMessages.push({
-        role: 'assistant' as const,
-        content: [
-          { type: 'text', text: typeof message.content === 'string' ? message.content : 'Using tool:' },
-          { 
-            type: 'tool_use',
-            id: toolCall.id,
-            name: toolCall.name,
-            input: toolCall.input || toolCall.arguments || {} // Ensure input is always present
-          }
-        ]
-      });
-      
-      // 2. IMMEDIATELY add the user message with tool_result (required by Claude API)
-      conversationMessages.push({
-        role: 'user' as const,
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: toolCall.id,
-            content: result && typeof result.content === 'string' 
-              ? result.content 
-              : JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
-          }
-        ]
-      });
-    }
-    
-    // Verify that tool_use and tool_result blocks are properly paired
-    let toolUsesWithoutResults = [];
-    
-    for (let i = 0; i < conversationMessages.length - 1; i++) {
-      const currentMsg = conversationMessages[i];
-      const nextMsg = conversationMessages[i + 1];
-      
-      // Check if current message has tool_use blocks
-      if (Array.isArray(currentMsg.content) && 
-          currentMsg.role === 'assistant' && 
-          currentMsg.content.some((block: any) => block.type === 'tool_use')) {
-        
-        // Find the tool_use blocks
-        const toolUseBlocks = currentMsg.content.filter((block: any) => block.type === 'tool_use');
-        
-        // Check if the next message is a user message with tool_result blocks for each tool_use
-        if (nextMsg.role !== 'user' || !Array.isArray(nextMsg.content)) {
-          toolUsesWithoutResults.push(...toolUseBlocks.map((block: any) => block.id));
-          continue;
-        }
-        
-        // Check each tool_use has a matching tool_result
-        for (const toolUseBlock of toolUseBlocks) {
-          const hasMatchingResult = Array.isArray(nextMsg.content) && 
-                                   nextMsg.content.some((block: any) => 
-                                     block.type === 'tool_result' && 
-                                     block.tool_use_id === toolUseBlock.id);
-          
-          if (!hasMatchingResult) {
-            toolUsesWithoutResults.push(toolUseBlock.id);
-          }
-        }
-      }
-    }
-    
-    // Log any tool_use blocks without tool_result blocks
-    if (toolUsesWithoutResults.length > 0) {
-      // Create a fixed version of the conversation
-      const fixedConversation = [];
-      
-      for (let i = 0; i < conversationMessages.length; i++) {
-        const currentMsg = conversationMessages[i];
-        fixedConversation.push(currentMsg);
-        
-        // If this is an assistant message with tool_use blocks
-        if (currentMsg.role === 'assistant' && Array.isArray(currentMsg.content)) {
-          const toolUseBlocks = currentMsg.content.filter((block: any) => block.type === 'tool_use');
-          
-          if (toolUseBlocks.length > 0) {
-            // Check if the next message (if exists) is a user message with tool_result blocks
-            const nextIsToolResult = i < conversationMessages.length - 1 && 
-                                    conversationMessages[i + 1].role === 'user' && 
-                                    Array.isArray(conversationMessages[i + 1].content) &&
-                                    conversationMessages[i + 1].content.some((block: any) => block.type === 'tool_result');
-            
-            // If next message is not a tool_result, insert one
-            if (!nextIsToolResult) {
-              // Even when adding synthetic tool results, preserve existing results
-              const toolResultsContent = toolUseBlocks.map((toolUse: any) => {
-                // Check if we already have a result for this tool use
-                // We're working with conversationMessages in this context
-                const existingResult = conversationMessages.find((msg: any) => 
-                  msg.tool_result_for === toolUse.id && 
-                  typeof msg.content === 'string'
-                );
-                
-                return {
-                  type: 'tool_result',
-                  tool_use_id: toolUse.id,
-                  // Use the actual tool result if we have it
-                  content: existingResult?.content || JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
-                };
-              });
-              
-              fixedConversation.push({
-                role: 'user' as const,
-                content: toolResultsContent
-              });
-              
-              // Added synthetic tool_result for missing tool_use responses
-            }
-          }
-        }
-      }
-      
-      // Replace the conversation with the fixed version
-      conversationMessages = fixedConversation;
-    }
-    
-    // Final validation - log the structure of the conversation with tool use/result pairs
-    let lastToolUseIds: string[] = [];
-    // Final validation completed successfully
-    
-    // We've already added messages in the proper order, so we don't need to sort them here
-    // The previous sorting approach wouldn't work well with tool use/result messages anyway
-    
-    // De-duplicate messages
-    conversationMessages = Array.from(
-      new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
-    );
-
-    // Ensure all incoming messages are included
-    const allIncomingMessages = allMessages.filter(msg => msg.direction === 'incoming');
-    
-    // Find which incoming messages made it to the final conversation
-    const includedIncomingMessageIds = conversationMessages
-      .filter(msg => msg.role === 'user' && typeof msg.content === 'string')
-      .map(msg => JSON.stringify(msg.content));
-    
-    // Find any missing incoming messages
-    const missingIncomingMessages = allIncomingMessages.filter(msg => 
-      !includedIncomingMessageIds.includes(JSON.stringify(msg.content))
-    );
-    
-    // If we found any missing incoming messages, add them now
-    if (missingIncomingMessages.length > 0) {
-      for (const msg of missingIncomingMessages) {
-        conversationMessages.push({
-          role: 'user',
-          content: msg.content
-        });
-      }
-    }
+    // Use the simplified tool handler to build conversation messages
+    console.log('=== BUILDING CONVERSATION MESSAGES WITH SIMPLIFIED APPROACH ===');
+    conversationMessages = buildConversationHistoryWithTools(allMessages);
+    console.log(`Built conversation history with ${conversationMessages.length} messages`);
+    console.log('=== COMPLETED BUILDING CONVERSATION MESSAGES ===');
 
     // Log conversation history construction
     console.log('===== CONVERSATION HISTORY CONSTRUCTION =====');
@@ -861,205 +643,36 @@ ${enhancedPrompt}`;
     const responseContent = (response as any).content;
     
 
-    // Process Claude's response
-    for (const block of responseContent) {
-      if (block.type === 'text') {
-        finalResponse += block.text + '\n';
-      } else if (block.type === 'tool_use') {
-        // Ensure the block has a type field set to 'tool_use'
-        block.type = 'tool_use'; // This ensures consistency even if the API changes
-        toolCalls.push(block);
-        
-        try {
-          // Execute tool call with caching and better error handling
-          
-          
-          let toolResult;
-          try {
-            toolResult = await cachedToolCall(
-              block.name,
-              block.input as Record<string, unknown>,
-              () => mcp.callTool({
-                id: block.id,
-                name: block.name,
-                arguments: block.input as Record<string, unknown>,
-                tool_result: []
-              })
-            );
-          } catch (error) {
-            // Cast the unknown error to a type with message property
-            const toolError = error as { message?: string };
-            
-            // Handle MCP "Tool not found" errors - typically when tool IDs don't match
-            if (toolError.message && 
-                typeof toolError.message === 'string' && 
-                toolError.message.includes('Tool') && 
-                toolError.message.includes('not found')) {
-              
-              try {
-                // Get available tools from MCP server
-                const availableTools = await goGuideClient.getTools();
-                
-                // Find matching tool by name
-                const matchingTool = availableTools.find(tool => 
-                  tool.name.toLowerCase() === block.name.toLowerCase() || 
-                  tool.name.replace(/\s+/g, '') === block.name.replace(/\s+/g, '')
-                );
-                
-                if (matchingTool) {
-                  
-                  toolResult = await cachedToolCall(
-                    block.name,
-                    block.input as Record<string, unknown>,
-                    () => mcp.callTool({
-                      // Use the correct tool ID from the server
-                      id: matchingTool.id || block.name,
-                      name: matchingTool.name, // Use the exact name from the server
-                      arguments: block.input as Record<string, unknown>,
-                      tool_result: []
-                    })
-                  );
-                } else {
-                  // No matching tool found, try with a generated ID
-                  const fallbackId = `${block.name.replace(/\s+/g, '_')}_${Date.now()}`;
-                  
-                  toolResult = await cachedToolCall(
-                    block.name,
-                    block.input as Record<string, unknown>,
-                    () => mcp.callTool({
-                      id: fallbackId,
-                      name: block.name,
-                      arguments: block.input as Record<string, unknown>,
-                      tool_result: []
-                    })
-                  );
-                }
-              } catch (error) {
-                const retryError = error as { message?: string };
-                console.error(`Retry also failed: ${retryError.message || 'Unknown error'}`);
-                throw error;
-              }
-            } else {
-              // Rethrow other errors
-              throw error;
-            }
-          }
-          
-          // Format the tool result for better user experience
-          const formattedResult = formatToolResponse(block.name, toolResult);
-          
-
-          // Update conversation history before creating the tool result message
-          
-          
-          // Create a new message for the tool result
-          // Keep status as 'pending' so it can be picked up for further processing
-          // Store the raw tool result rather than the formatted text to ensure complete data
-          const rawToolResultContent = typeof toolResult === 'string' 
-            ? toolResult 
-            : JSON.stringify(toolResult);
-            
-          const { data: toolResultMessage, error: toolResultError } = await supabase
-            .from('conversation_messages')
-            .insert({
-              profile_id: message.profile_id,
-              phone_number: message.phone_number,
-              direction: 'outgoing',
-              content: rawToolResultContent, // Use raw tool result instead of formatted text
-              parent_message_id: messageId,
-              // Don't set tool_calls for result messages - this avoids confusion
-              // between tool_use and tool_result messages
-              tool_result_for: block.id, // Add this field to track which tool call this result is for
-              conversation_history: JSON.stringify(messages), // Include conversation history for context
-              status: 'pending'
-            })
-            .select()
-            .single();
-          
-          if (toolResultError) {
-            throw new Error(`Failed to create tool result message: ${toolResultError.message}`);
-          }
-          
-          // Update the conversation history with the tool interaction
-          // Claude requires a specific format - tool_use blocks in assistant messages
-          // must be followed immediately by tool_result blocks in user messages with matching IDs
-          
-          // Create an array to hold the new messages
-          const messagesBeforeToolAddition = [...messages];
-          
-          // First, add the assistant message with the tool_use block
-          const assistantMessage = {
-            role: 'assistant' as const,
-            content: [
-              { type: 'text', text: finalResponse || 'Using tool:' },
-              { 
-                type: 'tool_use',
-                id: block.id,
-                name: block.name,
-                input: block.input || block.arguments || {} // Ensure input is always present
-              }
-            ]
-          };
-          
-          // Log the tool result for debugging
-          console.log(`Tool result for ${block.name}:`, typeof toolResult === 'string' 
-            ? (toolResult.length > 100 ? toolResult.substring(0, 100) + '...' : toolResult)
-            : JSON.stringify(toolResult).substring(0, 100) + '...');
-            
-          // Create the user message with the tool_result block
-          const userMessage = {
-            role: 'user' as const,
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: typeof toolResult === 'string' 
-                  ? toolResult 
-                  : JSON.stringify(toolResult)
-              }
-            ]
-          };
-          
-          // Add the new messages to the array
-          messages.push(assistantMessage);
-          messages.push(userMessage);
-          
-
-          // Send immediate tool result via SMS
-          if (formattedResult.text) {
-            await supabase.functions.invoke('send-sms', {
-              body: {
-                to: message.phone_number,
-                message: formattedResult.text
-              }
-            });
-          }
-          
-          // For the next call, only include the specific tool that was just called
-          // This drastically reduces context size when processing tool results
-          
-          // Find the specific tool definition
-          const specificTool = tools.find(tool => tool.name === block.name);
-          if (specificTool) {
-            // Replace the full tools list with just this one tool
-            tools = [specificTool];
-          }
-        } catch (error) {
-          console.error('Error executing tool call:', error);
-          const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-          
-          finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;
-        }
+    // Process Claude's response using the simplified tool handler
+    console.log('=== PROCESSING CLAUDE RESPONSE BLOCKS ===');
+    
+    try {
+      // Use our simplified tool handler to process the response
+      const result = await processToolCallsFromClaude(
+        responseContent, 
+        supabase, 
+        mcp, 
+        message, 
+        messageId
+      );
+      
+      // Extract the results
+      finalResponse = result.finalResponse;
+      toolCalls = result.toolCalls;
+      
+      // Add the new messages to our conversation history
+      for (const msg of result.messages) {
+        messages.push(msg);
       }
+      
+      console.log(`Processed ${toolCalls.length} tool calls from Claude's response`);
+      console.log(`Final text response: ${finalResponse.length > 100 ? finalResponse.substring(0, 100) + "..." : finalResponse}`);
+    } catch (error) {
+      console.error('Error processing Claude response:', error);
+      finalResponse = `Sorry, I encountered an error processing the response. ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
-
-    // Add the final response to conversation history
-    if (finalResponse.trim()) {
-      messages.push({
-        role: 'assistant' as const,
-        content: finalResponse
-      });
-    }
+    
+    console.log('=== COMPLETED PROCESSING CLAUDE RESPONSE ===');
     
     // Create response message - formatting is crucial for Claude compatibility
     await supabase
@@ -1119,8 +732,6 @@ ${enhancedPrompt}`;
         })
         .eq('id', messageId);
       
-      if (toolCalls.length > 0) {
-      }
     }
 
     // Send response via SMS
