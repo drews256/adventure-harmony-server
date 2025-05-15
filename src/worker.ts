@@ -185,10 +185,7 @@ function cleanConversationHistory(messages: any[]): any[] {
           return {
             type: 'tool_result',
             tool_use_id: block.tool_use_id,
-            // Replace content with a placeholder
-            content: typeof block.content === 'string' && block.content.length > 100 
-              ? `[Tool result for ${block.tool_use_id}]` 
-              : block.content
+            content: block.content
           };
         }
         
@@ -508,18 +505,9 @@ async function processJob(job: ConversationJob) {
               }
             });
           }
-          
-          // Log the tools being sent to API
-          console.log('Sending the following tools to Claude:', {
-            toolCount: toolsToUse.length,
-            toolNames: toolsToUse.map(t => t.name),
-            firstToolSample: toolsToUse.length > 0 ? 
-              {
-                name: toolsToUse[0].name,
-                description: toolsToUse[0].description?.substring(0, 30) + '...',
-                hasInputSchema: !!toolsToUse[0].input_schema
-              } : 'no tools'
-          });
+
+          console.log('Sending tool response messages to Claude');
+          console.log(toolResponseMessages);
           
           // Continue conversation with tool result
           const toolResponse = await withRetry(
