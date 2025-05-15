@@ -470,8 +470,16 @@ async function processMessage(messageId: string) {
     
     // Now build the conversation in proper order with regular messages first
     // First, process regular messages that are not tool calls or results
+    // Keep track of user (incoming) messages for debugging
+    let incomingMessagesCount = 0;
+    
     for (const msg of allMessages) {
       const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
+      
+      // Count incoming messages
+      if (msg.direction === 'incoming') {
+        incomingMessagesCount++;
+      }
       
       // Skip tool-related messages - we'll handle them separately
       if ((msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) ||
@@ -480,15 +488,21 @@ async function processMessage(messageId: string) {
       }
       
       // Skip messages that are likely tool results (based on parent relationship to tool call messages)
-      const isToolResult = msg.parent_message_id && 
-                          allMessages.some(m => 
-                            m.id === msg.parent_message_id && 
-                            m.tool_calls && 
-                            Array.isArray(m.tool_calls) && 
-                            m.tool_calls.length > 0);
-      
-      if (isToolResult) {
-        continue;
+      // BUT make sure we don't skip incoming user messages - those should always be included
+      if (msg.direction === 'incoming') {
+        // Always include incoming user messages
+        logWithTimestamp(`Including incoming user message: ${msg.id.substring(0, 8)}... "${msg.content.substring(0, 30)}..."`);
+      } else {
+        const isToolResult = msg.parent_message_id && 
+                            allMessages.some(m => 
+                              m.id === msg.parent_message_id && 
+                              m.tool_calls && 
+                              Array.isArray(m.tool_calls) && 
+                              m.tool_calls.length > 0);
+        
+        if (isToolResult) {
+          continue;
+        }
       }
       
       // Add regular message
@@ -658,6 +672,27 @@ async function processMessage(messageId: string) {
     conversationMessages = Array.from(
       new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
     );
+
+    // Log summary statistics about conversation messages
+    const userTextMsgCount = conversationMessages.filter(msg => msg.role === 'user' && typeof msg.content === 'string').length;
+    const assistantTextMsgCount = conversationMessages.filter(msg => msg.role === 'assistant' && typeof msg.content === 'string').length;
+    const toolUseMsgCount = conversationMessages.filter(msg => 
+      Array.isArray(msg.content) && 
+      msg.content.some((block: any) => block.type === 'tool_use')
+    ).length;
+    const toolResultMsgCount = conversationMessages.filter(msg => 
+      Array.isArray(msg.content) && 
+      msg.content.some((block: any) => block.type === 'tool_result')
+    ).length;
+    
+    logWithTimestamp('Message statistics:', {
+      totalIncomingMessages: incomingMessagesCount,
+      totalConversationMessages: conversationMessages.length,
+      userTextMessages: userTextMsgCount,
+      assistantTextMessages: assistantTextMsgCount,
+      toolUseMessages: toolUseMsgCount,
+      toolResultMessages: toolResultMsgCount
+    });
 
     console.log('----------- conversation messages ---------------')
     conversationMessages.map(m => console.log(JSON.stringify(m)))
