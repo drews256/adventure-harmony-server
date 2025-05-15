@@ -471,7 +471,7 @@ async function processMessage(messageId: string) {
 
           // Create a new message for the tool result
           // Keep status as 'pending' so it can be picked up for further processing
-          const { data: toolResultMessage } = await supabase
+          const { data: toolResultMessage, error: toolResultError } = await supabase
             .from('conversation_messages')
             .insert({
               profile_id: message.profile_id,
@@ -482,12 +482,17 @@ async function processMessage(messageId: string) {
               // Don't set tool_calls for result messages - this avoids confusion
               // between tool_use and tool_result messages
               tool_result_for: block.id, // Add this field to track which tool call this result is for
+              conversation_history: JSON.stringify(messages), // Include conversation history for context
               status: 'pending'
             })
             .select()
             .single();
           
-          logWithTimestamp('Saved tool result to database');
+          if (toolResultError) {
+            throw new Error(`Failed to create tool result message: ${toolResultError.message}`);
+          }
+          
+          logWithTimestamp('Saved tool result to database', { toolResultMessageId: toolResultMessage?.id });
           
           // Update the conversation history with the tool interaction
           // Claude requires a specific format - tool_use blocks in assistant messages
@@ -569,12 +574,26 @@ async function processMessage(messageId: string) {
         status: 'completed'
       });
 
-    // Update original message as completed
-    await supabase
-      .from('conversation_messages')
-      .update({ status: 'completed' })
-      .eq('id', messageId);
-    logWithTimestamp('Updated original message status to completed');
+    // Only mark the original message as completed if no tool calls were made
+    // This allows tool result messages to be processed in subsequent worker iterations
+    if (toolCalls.length === 0) {
+      await supabase
+        .from('conversation_messages')
+        .update({ status: 'completed' })
+        .eq('id', messageId);
+      logWithTimestamp('Updated original message status to completed - no tool calls made');
+    } else {
+      // If tool calls were made, keep the message as processing
+      // This allows us to verify that tool result messages are being processed
+      await supabase
+        .from('conversation_messages')
+        .update({ 
+          status: 'processing',
+          tool_calls: toolCalls
+        })
+        .eq('id', messageId);
+      logWithTimestamp('Keeping original message in processing state - tool calls were made');
+    }
 
     // Send response via SMS
     if (finalResponse) {
