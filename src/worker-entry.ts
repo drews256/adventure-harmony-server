@@ -223,30 +223,8 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
            toolDesc.includes('token');
   });
   
-  // Log how many tools we're including
-  const orderlineTools = filteredTools.filter(tool => 
-    tool.name.toLowerCase().includes('orderline') || 
-    tool.name.toLowerCase().includes('order line') ||
-    (tool.description || '').toLowerCase().includes('orderline') ||
-    (tool.description || '').toLowerCase().includes('order line')
-  );
-  
-  const tokenTools = filteredTools.filter(tool => 
-    tool.name.toLowerCase().includes('token') || 
-    (tool.description || '').toLowerCase().includes('token')
-  );
-  
-  console.log(`=====================================`);
-  console.log(`TOOL FILTERING SUMMARY:`);
-  console.log(`Total tools available: ${allTools.length}`);
-  console.log(`OrderLine tools included: ${orderlineTools.length}`);
-  console.log(`Token tools included: ${tokenTools.length}`);
-  console.log(`Total tools after filtering: ${filteredTools.length}`);
-  console.log(`=====================================`);
-  
   // If we didn't find any tools matching our criteria, return a minimal set
   if (filteredTools.length === 0) {
-    console.log(`WARNING: No OrderLine or Token tools found. Using first 5 tools as fallback.`);
     return allTools.slice(0, 5);
   }
   
@@ -457,11 +435,6 @@ async function processMessage(messageId: string) {
       // Add all regular text messages (both user and assistant)
       const role = msg.direction === 'incoming' ? 'user' : 'assistant';
       
-      // Simple log for debugging
-      if (msg.direction === 'incoming') {
-        console.log(`ADDING USER MESSAGE: ${msg.content.substring(0, 50)}...`);
-      }
-      
       // Add the message
       conversationMessages.push({
         role,
@@ -630,8 +603,7 @@ async function processMessage(messageId: string) {
       new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
     );
 
-    // Double-check: Ensure all incoming messages are included
-    // Get all incoming messages from the original data
+    // Ensure all incoming messages are included
     const allIncomingMessages = allMessages.filter(msg => msg.direction === 'incoming');
     
     // Find which incoming messages made it to the final conversation
@@ -646,43 +618,15 @@ async function processMessage(messageId: string) {
     
     // If we found any missing incoming messages, add them now
     if (missingIncomingMessages.length > 0) {
-      console.log(`FOUND ${missingIncomingMessages.length} MISSING USER MESSAGES - ADDING THEM NOW`);
-      
       for (const msg of missingIncomingMessages) {
         conversationMessages.push({
           role: 'user',
           content: msg.content
         });
-        console.log(`Added missing user message: ${msg.content.substring(0, 50)}...`);
       }
     }
-    
-    // Count incoming messages in the original data
-    const incomingCount = allIncomingMessages.length;
-    
-    // Count how many of each type made it into the final conversation
-    const userTextMsgCount = conversationMessages.filter(msg => msg.role === 'user' && typeof msg.content === 'string').length;
-    const assistantTextMsgCount = conversationMessages.filter(msg => msg.role === 'assistant' && typeof msg.content === 'string').length;
-    const toolUseMsgCount = conversationMessages.filter(msg => 
-      Array.isArray(msg.content) && 
-      msg.content.some((block: any) => block.type === 'tool_use')
-    ).length;
-    const toolResultMsgCount = conversationMessages.filter(msg => 
-      Array.isArray(msg.content) && 
-      msg.content.some((block: any) => block.type === 'tool_result')
-    ).length;
-    
-    console.log('=====================================');
-    console.log('MESSAGE COUNTS:');
-    console.log(`Total incoming (user) messages in data: ${incomingCount}`);
-    console.log(`User text messages in final context: ${userTextMsgCount}`);
-    console.log(`Assistant text messages in final context: ${assistantTextMsgCount}`);
-    console.log(`Tool use messages in final context: ${toolUseMsgCount}`);
-    console.log(`Tool result messages in final context: ${toolResultMsgCount}`);
-    console.log('=====================================');
 
-    console.log('----------- conversation messages ---------------')
-    conversationMessages.map(m => console.log(JSON.stringify(m)))
+    // Conversation messages are now cleaned up and ready for use
     
     // Final messages array for Claude
     const messages = conversationMessages;
@@ -722,7 +666,6 @@ async function processMessage(messageId: string) {
     
     // Apply our filter to specifically include only OrderLine and Token tools
     const filteredUniqueTools = filterToolsByContent(uniqueTools, "orderline token");
-    console.log(`Filtered from ${uniqueTools.length} to ${filteredUniqueTools.length} tools`);
     
     // We make this variable so it can be modified later if needed
     let tools = filteredUniqueTools.map((tool) => ({
@@ -740,15 +683,8 @@ async function processMessage(messageId: string) {
     const cleanedMessages = cleanConversationHistory(validatedMessages);
     const messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: message.content }];
     
-    const estimatedTokens = estimateTokenCount(messageWithCurrentContent, tools);
-    logWithTimestamp(`Estimated token count for Claude API call: ${estimatedTokens}`);
-    
-    // Log warning if token count is high
-    if (estimatedTokens > 30000) {
-      logWithTimestamp(`WARNING: High token count (${estimatedTokens}) may exceed limits`);
-    }
-    
-    logWithTimestamp('Calling Claude with cleaned conversation history');
+    // Single log line showing the complete conversation history being sent to Claude
+    console.log('CLAUDE CONVERSATION HISTORY:', JSON.stringify(messageWithCurrentContent, null, 2));
     
     // Call Claude with retry logic
     const response = await withRetry(
