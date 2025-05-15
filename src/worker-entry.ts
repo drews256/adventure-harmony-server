@@ -511,8 +511,6 @@ async function processMessage(messageId: string) {
               });
               
               // Added synthetic tool_result for missing tool_use responses
-                toolUseIds: toolUseBlocks.map((block: any) => block.id)
-              });
             }
           }
         }
