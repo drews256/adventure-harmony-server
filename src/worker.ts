@@ -470,41 +470,6 @@ async function processJob(job: ConversationJob) {
           const toolsToUse = specificTool ? [specificTool] : tools;
           
           console.log(`Using ${toolsToUse.length === 1 ? 'single specific tool' : 'all tools'} for follow-up call`);
-          
-          // Log detailed information about the messages being sent
-          console.log('Sending messages to Claude with the following history:', {
-            messageCount: toolResponseMessages.length,
-            lastTwoMessages: toolResponseMessages.slice(-2).map((m: any) => ({
-              role: m.role,
-              contentType: typeof m.content === 'string' ? 'text' : 'array',
-              contentSummary: Array.isArray(m.content) ? 
-                m.content.map((c: any) => c.type).join(', ') : 
-                (typeof m.content === 'string' ? 
-                  m.content.substring(0, 30) + '...' : 
-                  'unknown content type')
-            }))
-          });
-          
-          // Additional logging for the last two content blocks to verify proper tool_use formatting
-          if (toolResponseMessages.length >= 2) {
-            const lastTwoMessages = toolResponseMessages.slice(-2);
-            
-            lastTwoMessages.forEach((msg: any, msgIndex: number) => {
-              if (Array.isArray(msg.content)) {
-                msg.content.forEach((block: any, blockIndex: number) => {
-                  if (block.type === 'tool_use') {
-                    console.log(`Message ${msgIndex} tool_use block ${blockIndex} format:`, {
-                      id: block.id,
-                      name: block.name,
-                      hasInput: !!block.input,
-                      inputType: typeof block.input,
-                      inputSample: block.input ? JSON.stringify(block.input).substring(0, 50) + '...' : 'undefined'
-                    });
-                  }
-                });
-              }
-            });
-          }
 
           console.log('Sending tool response messages to Claude');
           console.log(toolResponseMessages);

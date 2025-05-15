@@ -791,50 +791,8 @@ async function processMessage(messageId: string) {
     }
     
     logWithTimestamp('Calling Claude with cleaned conversation history');
-    // Log detailed information about the messages being sent
-    logWithTimestamp('Sending messages to Claude with the following history:', {
-      messageCount: messageWithCurrentContent.length,
-      lastTwoMessages: messageWithCurrentContent.slice(-2).map(m => ({
-        role: m.role,
-        contentType: typeof m.content === 'string' ? 'text' : 'array',
-        contentSummary: Array.isArray(m.content) ? 
-          m.content.map((c: any) => c.type).join(', ') : 
-          (typeof m.content === 'string' ? 
-            m.content.substring(0, 30) + '...' : 
-            'unknown content type')
-      }))
-    });
     
-    // Additional logging for the last two content blocks to verify proper tool_use formatting
-    if (messageWithCurrentContent.length >= 2) {
-      const lastMessage = messageWithCurrentContent[messageWithCurrentContent.length - 1];
-      
-      if (Array.isArray(lastMessage.content)) {
-        lastMessage.content.forEach((block: any, index: number) => {
-          if (block.type === 'tool_use') {
-            logWithTimestamp(`Message tool_use block ${index} format:`, {
-              id: block.id,
-              name: block.name,
-              hasInput: !!block.input,
-              inputType: typeof block.input,
-              inputSample: block.input ? JSON.stringify(block.input).substring(0, 50) + '...' : 'undefined'
-            });
-          }
-        });
-      }
-    }
-    
-    // Log the tools being sent to API
-    logWithTimestamp('Sending the following tools to Claude:', {
-      toolCount: tools.length,
-      toolNames: tools.map(t => t.name),
-      firstToolSample: tools.length > 0 ? 
-        {
-          name: tools[0].name,
-          description: tools[0].description?.substring(0, 30) + '...',
-          hasInputSchema: !!tools[0].input_schema
-        } : 'no tools'
-    });
+    console.log('Sending messages to Claude with the following history:', messageWithCurrentContent);
     
     // Call Claude with retry logic
     const response = await withRetry(
