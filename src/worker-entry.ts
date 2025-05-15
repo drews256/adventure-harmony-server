@@ -214,10 +214,6 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
            toolDesc.includes('token');
   });
 
-  filteredTools.map((tool) => {
-    console.log('Filtered tools:', tool.name);
-  })
-  
   // If we didn't find any tools matching our criteria, return a minimal set
   if (filteredTools.length === 0) {
     console.log('No tools found, returning minimal set');
@@ -300,6 +296,29 @@ async function processMessage(messageId: string) {
     // Get the full conversation history
     const history = await getMessageChain(messageId);
     const uniqueHistory = Array.from(new Map(history.map(item => [item.id, item])).values());
+    
+    // Log details about the message history loaded from the database
+    console.log('===== DATABASE MESSAGE HISTORY =====');
+    console.log(`Total messages loaded from database: ${history.length}`);
+    console.log(`Unique messages after deduplication: ${uniqueHistory.length}`);
+    
+    // Count message direction
+    const directionCounts = uniqueHistory.reduce((acc, msg) => {
+      acc[msg.direction || 'unknown'] = (acc[msg.direction || 'unknown'] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log(`Message direction breakdown:`, JSON.stringify(directionCounts, null, 2));
+    
+    // Log the current message being processed
+    const currentMsg = uniqueHistory.find(msg => msg.id === messageId);
+    if (currentMsg) {
+      console.log(`Current message being processed:`);
+      console.log(`ID: ${currentMsg.id}, Direction: ${currentMsg.direction}`);
+      console.log(`Content: ${typeof currentMsg.content === 'string' 
+        ? (currentMsg.content.length > 100 ? currentMsg.content.substring(0, 100) + '...' : currentMsg.content)
+        : 'Complex content'}`);
+    }
+    console.log('===== END DATABASE MESSAGE HISTORY =====');
     
 
     // Check if the current message has stored conversation history
@@ -591,6 +610,43 @@ async function processMessage(messageId: string) {
       }
     }
 
+    // Log conversation history construction
+    console.log('===== CONVERSATION HISTORY CONSTRUCTION =====');
+    console.log(`Total conversation messages constructed: ${conversationMessages.length}`);
+    console.log(`Breakdown of message roles in constructed history:`);
+    const constructedRoleCounts = conversationMessages.reduce((acc, msg) => {
+      acc[msg.role] = (acc[msg.role] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log(JSON.stringify(constructedRoleCounts, null, 2));
+    
+    // Log message types in the history (text vs tool-related)
+    const textMsgCount = conversationMessages.filter(msg => typeof msg.content === 'string').length;
+    const complexMsgCount = conversationMessages.filter(msg => Array.isArray(msg.content)).length;
+    console.log(`Text-only messages: ${textMsgCount}, Complex messages (tool use/result): ${complexMsgCount}`);
+    
+    // Log the oldest 3 and newest 3 messages for context
+    if (conversationMessages.length > 0) {
+      console.log('First 3 messages in conversation history:');
+      for (let i = 0; i < Math.min(3, conversationMessages.length); i++) {
+        const msg = conversationMessages[i];
+        console.log(`[${i}] Role: ${msg.role}, Content type: ${typeof msg.content === 'string' ? 'text' : 'array'}`);
+        if (typeof msg.content === 'string') {
+          console.log(`  Preview: ${msg.content.length > 50 ? msg.content.substring(0, 50) + '...' : msg.content}`);
+        }
+      }
+      
+      console.log('Last 3 messages in conversation history:');
+      for (let i = Math.max(0, conversationMessages.length - 3); i < conversationMessages.length; i++) {
+        const msg = conversationMessages[i];
+        console.log(`[${i}] Role: ${msg.role}, Content type: ${typeof msg.content === 'string' ? 'text' : 'array'}`);
+        if (typeof msg.content === 'string') {
+          console.log(`  Preview: ${msg.content.length > 50 ? msg.content.substring(0, 50) + '...' : msg.content}`);
+        }
+      }
+    }
+    console.log('===== END CONVERSATION HISTORY CONSTRUCTION =====');
+    
     // Conversation messages are now cleaned up and ready for use
     
     // Final messages array for Claude
@@ -649,7 +705,16 @@ Here's my current message: ${message.content}`;
     
     // If token count is too high, reduce the number of messages from oldest to newest
     if (tokenInfo.total > 30000) {
+      console.log('===== TOKEN REDUCTION PROCESS =====');
       console.log('Token count is high (>30k), reducing message history to fit within token limits');
+      console.log(`Original message count: ${messageWithCurrentContent.length}`);
+      
+      // Log the distribution of message roles before reduction
+      const preReductionRoles = messageWithCurrentContent.reduce((acc, msg) => {
+        acc[msg.role] = (acc[msg.role] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log(`Pre-reduction role distribution:`, JSON.stringify(preReductionRoles, null, 2));
       
       // Keep the newest 50% of regular messages by default
       let messagesToKeep = Math.ceil(cleanedMessages.length * 0.5);
@@ -704,7 +769,50 @@ ${enhancedPrompt}`;
       if (tokenInfo.toolTokens > 10000) {
         console.log(`WARNING: Tools are using ${tokenInfo.toolTokens} tokens (${Math.round(tokenInfo.toolTokens/tokenInfo.total*100)}% of total). Consider reducing the number of tools or simplifying tool schemas.`);
       }
+      
+      // Log the final message distribution after reduction
+      const postReductionRoles = messageWithCurrentContent.reduce((acc, msg) => {
+        acc[msg.role] = (acc[msg.role] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log(`Post-reduction role distribution:`, JSON.stringify(postReductionRoles, null, 2));
+      console.log(`Final message count: ${messageWithCurrentContent.length}`);
+      console.log('===== END TOKEN REDUCTION PROCESS =====');
     }
+    // Log detailed information about the message context being sent to Claude
+    console.log('===== MESSAGE CONTEXT DETAILS =====');
+    console.log(`Total messages being sent to Claude: ${messageWithCurrentContent.length}`);
+    console.log('Message roles breakdown:');
+    const roleCounts = messageWithCurrentContent.reduce((acc, msg) => {
+      acc[msg.role] = (acc[msg.role] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log(JSON.stringify(roleCounts, null, 2));
+    
+    // Log the last 5 messages for context (or all if less than 5)
+    const lastN = Math.min(5, messageWithCurrentContent.length);
+    console.log(`Last ${lastN} messages being sent to Claude:`);
+    for (let i = messageWithCurrentContent.length - lastN; i < messageWithCurrentContent.length; i++) {
+      const msg = messageWithCurrentContent[i];
+      console.log(`[${i}] Role: ${msg.role}, Content: ${typeof msg.content === 'string' 
+        ? (msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content)
+        : 'Array content (contains tool use/result)'}`);
+    }
+    
+    // Log detailed information about tool-related messages
+    const toolUseMessagesInContext = messageWithCurrentContent.filter(msg => 
+      Array.isArray(msg.content) && 
+      msg.content.some((block: any) => block.type === 'tool_use')
+    );
+    const toolResultMessagesInContext = messageWithCurrentContent.filter(msg => 
+      Array.isArray(msg.content) && 
+      msg.content.some((block: any) => block.type === 'tool_result')
+    );
+    
+    console.log(`Number of tool_use messages: ${toolUseMessagesInContext.length}`);
+    console.log(`Number of tool_result messages: ${toolResultMessagesInContext.length}`);
+    console.log('===== END MESSAGE CONTEXT DETAILS =====');
+    
     // Call Claude with retry logic
     const response = await withRetry(
       () => anthropic.messages.create({
