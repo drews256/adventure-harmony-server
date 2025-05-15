@@ -176,10 +176,7 @@ function cleanConversationHistory(messages: any[]): any[] {
           return {
             type: 'tool_result',
             tool_use_id: block.tool_use_id,
-            // Replace content with a placeholder
-            content: typeof block.content === 'string' && block.content.length > 100 
-              ? `[Tool result for ${block.tool_use_id}]` 
-              : block.content
+            content: block.content
           };
         }
         
