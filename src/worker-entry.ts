@@ -130,17 +130,12 @@ function validateAndFixConversationHistory(messages: any[]): any[] {
             role: 'user' as const,
             content: toolResultsContent
           });
-          
-          logWithTimestamp('Added synthetic tool_result for missing tool_use responses', {
-            toolUseIds: toolUseBlocks.map((block: any) => block.id)
-          });
         }
       }
     }
   }
   
   // Return the fixed conversation
-  logWithTimestamp(`Fixed conversation history has ${fixedConversation.length} messages (was ${messages.length})`);
   return fixedConversation;
 }
 
@@ -171,12 +166,12 @@ function cleanConversationHistory(messages: any[]): any[] {
           };
         }
         
-        // For tool result blocks, simplify content
+        // For tool result blocks, preserve the complete content
         if (block.type === 'tool_result') {
           return {
             type: 'tool_result',
             tool_use_id: block.tool_use_id,
-            content: block.content
+            content: block.content // Preserving full content without modification
           };
         }
         
@@ -387,32 +382,6 @@ async function processMessage(messageId: string) {
       logWithTimestamp('Processing a tool result message');
     }
     
-    // We will log the stored history for debugging purposes but won't use it
-    if (currentMessage?.conversation_history) {
-      try {
-        const storedHistory = JSON.parse(currentMessage.conversation_history);
-        if (Array.isArray(storedHistory) && storedHistory.length > 0) {
-          logWithTimestamp(`Found stored conversation history with ${storedHistory.length} messages, but will build from database instead`);
-          // Log summary of the stored history for debugging
-          logWithTimestamp('Stored conversation history summary:', {
-            messageCount: storedHistory.length,
-            firstMessageRole: storedHistory[0]?.role,
-            lastMessageRole: storedHistory[storedHistory.length - 1]?.role,
-            containsToolUse: storedHistory.some(m => 
-              Array.isArray(m.content) && 
-              m.content.some((c: any) => c.type === 'tool_use')
-            ),
-            containsToolResult: storedHistory.some(m => 
-              Array.isArray(m.content) && 
-              m.content.some((c: any) => c.type === 'tool_result')
-            )
-          });
-        }
-      } catch (e) {
-        logWithTimestamp('Error parsing stored conversation history:', e);
-      }
-    }
-    
     // Always rebuild conversation history from database messages
     // (we never use stored history, even if it exists)
     conversationMessages = [];
@@ -452,14 +421,6 @@ async function processMessage(messageId: string) {
     
     // Convert to Claude's message format - ensuring proper tool_use and tool_result pairing
     conversationMessages = [];
-    
-    // Log details about the messages we're about to process
-    logWithTimestamp('Messages from database being reconstructed into conversation history:', {
-      messageCount: allMessages.length,
-      regularMessages: allMessages.filter(msg => !msg.tool_calls || !Array.isArray(msg.tool_calls) || msg.tool_calls.length === 0).length,
-      toolCallMessages: allMessages.filter(msg => msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0).length,
-      toolResultMessages: allMessages.filter(msg => msg.tool_result_for).length
-    });
     
     // First, we'll collect the tool calls and their results in a structured way
     const toolCallMap = new Map();
@@ -760,7 +721,6 @@ async function processMessage(messageId: string) {
     
     // Clean conversation history to reduce token usage
     const cleanedMessages = cleanConversationHistory(validatedMessages);
-    console.log('Cleaned messages:', JSON.stringify(cleanedMessages, null, 2));
     const messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: message.content }];
     
     const estimatedTokens = estimateTokenCount(messageWithCurrentContent, tools);
@@ -957,13 +917,18 @@ async function processMessage(messageId: string) {
           
           // Create a new message for the tool result
           // Keep status as 'pending' so it can be picked up for further processing
+          // Store the raw tool result rather than the formatted text to ensure complete data
+          const rawToolResultContent = typeof toolResult === 'string' 
+            ? toolResult 
+            : JSON.stringify(toolResult);
+            
           const { data: toolResultMessage, error: toolResultError } = await supabase
             .from('conversation_messages')
             .insert({
               profile_id: message.profile_id,
               phone_number: message.phone_number,
               direction: 'outgoing',
-              content: formattedResult.text || JSON.stringify(toolResult),
+              content: rawToolResultContent, // Use raw tool result instead of formatted text
               parent_message_id: messageId,
               // Don't set tool_calls for result messages - this avoids confusion
               // between tool_use and tool_result messages

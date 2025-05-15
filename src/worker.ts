@@ -179,13 +179,13 @@ function cleanConversationHistory(messages: any[]): any[] {
           };
         }
         
-        // For tool result blocks, simplify content
+        // For tool result blocks, preserve the complete content
         if (block.type === 'tool_result') {
-          console.log('Tool result', block);
+          console.log('Tool result (preserving full content):', block);
           return {
             type: 'tool_result',
             tool_use_id: block.tool_use_id,
-            content: block.content
+            content: block.content // Preserving full content without modification
           };
         }
         
