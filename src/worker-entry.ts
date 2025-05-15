@@ -360,6 +360,8 @@ async function processMessage(messageId: string) {
           maxDepth
         );
         
+        console.log('----------- message chain ---------------')
+        console.log([...parentChain, ...messages])
         // Combine parent chain with current messages
         return [...parentChain, ...messages];
       }
