@@ -100,11 +100,22 @@ function validateAndFixConversationHistory(messages: any[]): any[] {
         
         // If next message is not a tool_result, insert one
         if (!nextIsToolResult) {
-          const toolResultsContent = toolUseBlocks.map((toolUse: any) => ({
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
-            content: JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
-          }));
+          // Even when adding synthetic tool results, we need to preserve any existing results
+          const toolResultsContent = toolUseBlocks.map((toolUse: any) => {
+            // Check if we already have a result for this tool use
+            // Note: messages is available in this scope
+            const existingResult = messages.find((msg: any) => 
+              msg.tool_result_for === toolUse.id && 
+              typeof msg.content === 'string'
+            );
+            
+            return {
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              // Use the actual tool result if we have it
+              content: existingResult?.content || JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+            };
+          });
           
           fixedConversation.push({
             role: 'user' as const,
@@ -554,11 +565,22 @@ async function processMessage(messageId: string) {
             
             // If next message is not a tool_result, insert one
             if (!nextIsToolResult) {
-              const toolResultsContent = toolUseBlocks.map((toolUse: any) => ({
-                type: 'tool_result',
-                tool_use_id: toolUse.id,
-                content: JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
-              }));
+              // Even when adding synthetic tool results, preserve existing results
+              const toolResultsContent = toolUseBlocks.map((toolUse: any) => {
+                // Check if we already have a result for this tool use
+                // We're working with conversationMessages in this context
+                const existingResult = conversationMessages.find((msg: any) => 
+                  msg.tool_result_for === toolUse.id && 
+                  typeof msg.content === 'string'
+                );
+                
+                return {
+                  type: 'tool_result',
+                  tool_use_id: toolUse.id,
+                  // Use the actual tool result if we have it
+                  content: existingResult?.content || JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+                };
+              });
               
               fixedConversation.push({
                 role: 'user' as const,
@@ -692,7 +714,7 @@ Don't be confused by messages that seem unrelated - I expect you to have access 
 
 IMPORTANT: Before using tools, check if you've already used similar tools in previous messages. If relevant tool results already exist in our conversation history, use that information instead of making duplicate tool calls. This will save time and provide a better experience.
 
-For example, if you see I previously asked about hiking trails and you already fetched that information, don't fetch it again - just reference the existing results and continue the conversation.
+For example, if you see I previously asked about generating a token and you already fetched that information, don't fetch it again - just reference the existing results and continue the conversation.
 
 Here's my current message: ${message.content}`;
     
@@ -979,6 +1001,11 @@ ${enhancedPrompt}`;
             ]
           };
           
+          // Log the tool result for debugging
+          console.log(`Tool result for ${block.name}:`, typeof toolResult === 'string' 
+            ? (toolResult.length > 100 ? toolResult.substring(0, 100) + '...' : toolResult)
+            : JSON.stringify(toolResult).substring(0, 100) + '...');
+            
           // Create the user message with the tool_result block
           const userMessage = {
             role: 'user' as const,
