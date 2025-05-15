@@ -351,6 +351,7 @@ async function processMessage(messageId: string) {
       
       // If we have a parent and haven't reached max depth, get parent chain
       if (currentMessage.parent_message_id && depth < maxDepth) {
+        logWithTimestamp(`Fetching parent chain for message ${currentMessage.id}`);
         const parentChain = await getMessageChain(
           currentMessage.parent_message_id, 
           depth + 1,
@@ -509,13 +510,6 @@ async function processMessage(messageId: string) {
     for (const interaction of allToolInteractions) {
       const { toolCall, message, result } = interaction;
       
-      // Log the tool interaction we're processing
-      logWithTimestamp(`Processing tool interaction: ${toolCall.id}`, {
-        toolName: toolCall.name,
-        hasResult: !!result,
-        resultContent: result ? result.content.substring(0, 50) + '...' : 'No result found'
-      });
-      
       // 1. First add the assistant message with tool_use
       conversationMessages.push({
         role: 'assistant' as const,
@@ -582,14 +576,6 @@ async function processMessage(messageId: string) {
     
     // Log any tool_use blocks without tool_result blocks
     if (toolUsesWithoutResults.length > 0) {
-      logWithTimestamp('WARNING: Found tool_use blocks without matching tool_result blocks:', {
-        toolUseIds: toolUsesWithoutResults,
-        messageCount: conversationMessages.length
-      });
-      
-      // Try to fix the conversation by ensuring every tool_use has a matching tool_result
-      logWithTimestamp('Attempting to fix conversation by adding missing tool_results');
-      
       // Create a fixed version of the conversation
       const fixedConversation = [];
       
