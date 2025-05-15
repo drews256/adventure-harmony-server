@@ -465,9 +465,15 @@ async function processMessage(messageId: string) {
                 tool_result: []
               })
             );
-          } catch (toolError) {
+          } catch (error) {
+            // Cast the unknown error to a type with message property
+            const toolError = error as { message?: string };
+            
             // Handle MCP "Tool not found" errors - typically when tool IDs don't match
-            if (toolError.message && toolError.message.includes('Tool') && toolError.message.includes('not found')) {
+            if (toolError.message && 
+                typeof toolError.message === 'string' && 
+                toolError.message.includes('Tool') && 
+                toolError.message.includes('not found')) {
               logWithTimestamp(`Tool ID error - attempting to find correct tool ID for: ${block.name}`);
               
               try {
@@ -510,13 +516,14 @@ async function processMessage(messageId: string) {
                     })
                   );
                 }
-              } catch (retryError) {
-                logWithTimestamp(`Retry also failed: ${retryError.message}`);
-                throw retryError;
+              } catch (error) {
+                const retryError = error as { message?: string };
+                logWithTimestamp(`Retry also failed: ${retryError.message || 'Unknown error'}`);
+                throw error;
               }
             } else {
               // Rethrow other errors
-              throw toolError;
+              throw error;
             }
           }
           
