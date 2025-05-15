@@ -660,7 +660,7 @@ async function processMessage(messageId: string) {
     );
 
     console.log('----------- conversation messages ---------------')
-    console.log(conversationMessages)
+    conversationMessages.map(m => console.log(JSON.stringify(m)))
     
     // Final messages array for Claude
     const messages = conversationMessages;
