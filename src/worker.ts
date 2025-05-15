@@ -296,8 +296,11 @@ async function processJob(job: ConversationJob) {
             msg => msg.role === 'user' && msg.content === job.request_text
           );
           
-          // Begin building the updated history
+          // Begin building the updated history by including ALL raw messages in the proper order
           let updatedConversationHistory = [...job.conversation_history];
+          
+          // Log the existing conversation history for debugging
+          console.log(`Current job history has ${updatedConversationHistory.length} messages before adding new tool interaction`);
           
           // Add user request if not already present
           if (!requestAlreadyPresent) {

@@ -358,6 +358,14 @@ async function processMessage(messageId: string) {
       // Convert to Claude's message format - ensuring proper tool_use and tool_result pairing
       conversationMessages = [];
       
+      // Log details about the messages we're about to process
+      logWithTimestamp('Messages from database being reconstructed into conversation history:', {
+        messageCount: allMessages.length,
+        regularMessages: allMessages.filter(msg => !msg.tool_calls || !Array.isArray(msg.tool_calls) || msg.tool_calls.length === 0).length,
+        toolCallMessages: allMessages.filter(msg => msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0).length,
+        toolResultMessages: allMessages.filter(msg => msg.tool_result_for).length
+      });
+      
       // First, process regular messages
       for (let i = 0; i < allMessages.length; i++) {
         const msg = allMessages[i];
@@ -381,12 +389,25 @@ async function processMessage(messageId: string) {
         if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
           // For each tool call in the message
           for (const toolCall of msg.tool_calls) {
-            // Find the corresponding tool result message
+            // Find the corresponding tool result message - either by tool_result_for field or parent relationship
             const resultMsg = allMessages.find(m => 
-              m.parent_message_id === msg.id && 
+              (m.tool_result_for === toolCall.id) || // First try to match by tool result ID
+              (m.parent_message_id === msg.id && 
               m.direction === 'outgoing' &&
-              (!m.tool_calls || m.tool_calls.length === 0) // Not another tool call
+              (!m.tool_calls || m.tool_calls.length === 0)) // Not another tool call
             );
+            
+            if (resultMsg) {
+              logWithTimestamp(`Found matching tool result message for tool call ${toolCall.id}`);
+            } else {
+              logWithTimestamp(`Warning: Could not find matching tool result for tool call ${toolCall.id}`, {
+                toolCall: toolCall.name,
+                messageId: msg.id,
+                resultMessages: allMessages
+                  .filter(m => m.parent_message_id === msg.id)
+                  .map(m => ({ id: m.id, direction: m.direction, hasToolCalls: m.tool_calls && m.tool_calls.length > 0 }))
+              });
+            }
             
             // Add the tool_use message (always from assistant)
             conversationMessages.push({
@@ -414,12 +435,26 @@ async function processMessage(messageId: string) {
         }
       }
       
-      // Sort messages by creation time to maintain conversation flow
-      conversationMessages.sort((a, b) => {
-        const aIndex = allMessages.findIndex(m => m.content === (typeof a.content === 'string' ? a.content : ''));
-        const bIndex = allMessages.findIndex(m => m.content === (typeof b.content === 'string' ? b.content : ''));
-        return aIndex - bIndex;
-      });
+      // We've already added messages in the proper order, so we don't need to sort them here
+      // The previous sorting approach wouldn't work well with tool use/result messages anyway
+      logWithTimestamp(`Final conversation history contains ${conversationMessages.length} messages`);
+      
+      // Debug last message to ensure proper pairing
+      if (conversationMessages.length >= 2) {
+        const lastTwoMessages = conversationMessages.slice(-2);
+        logWithTimestamp('Last two messages in history:', {
+          secondLast: {
+            role: lastTwoMessages[0].role,
+            contentType: typeof lastTwoMessages[0].content === 'string' ? 'text' : 'array',
+            content: lastTwoMessages[0].content
+          },
+          last: {
+            role: lastTwoMessages[1].role,
+            contentType: typeof lastTwoMessages[1].content === 'string' ? 'text' : 'array',
+            content: lastTwoMessages[1].content
+          }
+        });
+      }
       
       // De-duplicate messages
       conversationMessages = Array.from(
