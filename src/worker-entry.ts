@@ -170,8 +170,8 @@ function cleanConversationHistory(messages: any[]): any[] {
   });
 }
 
-// Estimate token count for API calls
-function estimateTokenCount(messages: any[], tools: any[]): number {
+// Estimate token count for API calls with breakdown for messages and tools
+function estimateTokenCount(messages: any[], tools: any[]): { total: number, messageTokens: number, toolTokens: number } {
   // Simple approximation: 4 chars ≈ 1 token for English text
   const messageText = messages
     .map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
@@ -179,8 +179,19 @@ function estimateTokenCount(messages: any[], tools: any[]): number {
   
   const toolText = JSON.stringify(tools);
   
-  // Calculate and return token estimate
-  return Math.ceil((messageText.length + toolText.length) / 4);
+  // Calculate tokens for each component
+  const messageTokens = Math.ceil(messageText.length / 4);
+  const toolTokens = Math.ceil(toolText.length / 4);
+  
+  // Log detailed breakdown
+  console.log(`Token breakdown - Messages: ${messageTokens} tokens (${messageText.length} chars), Tools: ${toolTokens} tokens (${toolText.length} chars)`);
+  
+  // Return detailed token information
+  return {
+    total: messageTokens + toolTokens,
+    messageTokens,
+    toolTokens
+  };
 }
 
 // Filter tools based on message content
@@ -632,18 +643,18 @@ Here's my current message: ${message.content}`;
     let messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: enhancedPrompt }];
     
     // Check token count
-    let tokenCount = estimateTokenCount(messageWithCurrentContent, tools);
-    console.log(`Initial estimated token count: ${tokenCount}`);
+    let tokenInfo = estimateTokenCount(messageWithCurrentContent, tools);
+    console.log(`Initial estimated token count: ${tokenInfo.total} (Messages: ${tokenInfo.messageTokens}, Tools: ${tokenInfo.toolTokens})`);
     
     // If token count is too high, reduce the number of messages from oldest to newest
-    if (tokenCount > 30000) {
+    if (tokenInfo.total > 30000) {
       console.log('Token count is high (>30k), reducing message history to fit within token limits');
       
       // Keep the newest 50% of regular messages by default
       let messagesToKeep = Math.ceil(cleanedMessages.length * 0.5);
       
       // Try different reductions until we get under 30k tokens
-      while (tokenCount > 30000 && messagesToKeep > 5) {
+      while (tokenInfo.total > 30000 && messagesToKeep > 5) {
         // Get the most recent messages, prioritizing tool results
         const toolMessages = cleanedMessages.filter(msg => 
           Array.isArray(msg.content) && 
@@ -666,15 +677,15 @@ Here's my current message: ${message.content}`;
         messageWithCurrentContent = [...reducedMessages, { role: 'user' as const, content: enhancedPrompt }];
         
         // Recalculate token count
-        tokenCount = estimateTokenCount(messageWithCurrentContent, tools);
-        console.log(`Reduced to ${reducedMessages.length} messages, new token count: ${tokenCount}`);
+        tokenInfo = estimateTokenCount(messageWithCurrentContent, tools);
+        console.log(`Reduced to ${reducedMessages.length} messages, new token count: ${tokenInfo.total} (Messages: ${tokenInfo.messageTokens}, Tools: ${tokenInfo.toolTokens})`);
         
         // Reduce by another 5 messages if still too large
         messagesToKeep -= 5;
       }
       
       // If we still can't get under the limit, add a warning to the prompt
-      if (tokenCount > 30000) {
+      if (tokenInfo.total > 30000) {
         // Add warning about limited history
         const reducedPrompt = `NOTE: Due to the large conversation history, I only have access to the most recent messages. Some earlier context may be missing.
 
@@ -684,8 +695,13 @@ ${enhancedPrompt}`;
         messageWithCurrentContent[messageWithCurrentContent.length - 1].content = reducedPrompt;
         
         // Final token count
-        tokenCount = estimateTokenCount(messageWithCurrentContent, tools);
-        console.log(`Final reduction with warning message, token count: ${tokenCount}`);
+        tokenInfo = estimateTokenCount(messageWithCurrentContent, tools);
+        console.log(`Final reduction with warning message, token count: ${tokenInfo.total} (Messages: ${tokenInfo.messageTokens}, Tools: ${tokenInfo.toolTokens})`);
+      }
+      
+      // If tools are taking up a lot of tokens, provide a warning and suggestion
+      if (tokenInfo.toolTokens > 10000) {
+        console.log(`WARNING: Tools are using ${tokenInfo.toolTokens} tokens (${Math.round(tokenInfo.toolTokens/tokenInfo.total*100)}% of total). Consider reducing the number of tools or simplifying tool schemas.`);
       }
     }
     // Call Claude with retry logic
