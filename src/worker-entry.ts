@@ -205,75 +205,52 @@ function estimateTokenCount(messages: any[], tools: any[]): number {
 
 // Filter tools based on message content
 function filterToolsByContent(allTools: any[], messageContent: string): any[] {
-  if (!messageContent || !allTools || allTools.length === 0) {
-    return allTools; // Return all tools if no message content or tools
+  if (!allTools || allTools.length === 0) {
+    return []; // Return empty array if no tools
   }
 
-  // Convert message to lowercase for matching
-  const content = messageContent.toLowerCase();
-  
-  // Define categories of tools with their associated keywords
-  const toolCategories: Record<string, string[]> = {
-    calendar: ['calendar', 'schedule', 'appointment', 'meeting', 'event', 'reminder', 'date', 'time', 'book', 'reservation'],
-    travel: ['travel', 'trip', 'flight', 'hotel', 'car', 'book', 'reservation', 'location', 'directions', 'map'],
-    weather: ['weather', 'forecast', 'temperature', 'rain', 'snow', 'sunny', 'cloudy', 'storm', 'climate'],
-    search: ['search', 'find', 'lookup', 'information', 'data', 'about', 'what is', 'who is', 'tell me'],
-    messaging: ['message', 'send', 'text', 'email', 'contact', 'phone', 'call', 'notify', 'chat'],
-    shopping: ['buy', 'purchase', 'order', 'shop', 'price', 'cost', 'store', 'product', 'item', 'cart'],
-    food: ['food', 'restaurant', 'meal', 'eat', 'dinner', 'lunch', 'breakfast', 'recipe', 'cook', 'delivery'],
-    health: ['health', 'medical', 'doctor', 'symptom', 'medicine', 'appointment', 'fitness', 'exercise', 'workout'],
-    media: ['movie', 'music', 'song', 'artist', 'album', 'play', 'watch', 'video', 'stream', 'show', 'listen'],
-    financial: ['money', 'payment', 'bank', 'transfer', 'account', 'balance', 'transaction', 'pay', 'bill', 'cost', 'price']
-  };
-  
-  // Check which categories match the message content
-  const matchedCategories = Object.entries(toolCategories)
-    .filter(([category, keywords]) => 
-      keywords.some(keyword => content.includes(keyword))
-    )
-    .map(([category]) => category);
-  
-  logWithTimestamp(`Message matches categories: ${matchedCategories.join(', ') || 'none'}`);
-  
-  // If no categories match, return a basic set of tools
-  if (matchedCategories.length === 0) {
-    // Return a small subset of essential tools (roughly 20% of all tools)
-    const essentialTools = allTools.filter((tool, index) => index % 5 === 0);
-    logWithTimestamp(`No specific categories matched. Returning ${essentialTools.length} essential tools`);
-    return essentialTools;
-  }
-  
-  // Filter tools based on matched categories
-  const relevantTools = allTools.filter(tool => {
-    const toolName = tool.name.toLowerCase();
-    const toolDesc = tool.description?.toLowerCase() || '';
+  // OVERRIDE: Only include OrderLines and Tokens tools
+  const filteredTools = allTools.filter(tool => {
+    const toolName = (tool.name || '').toLowerCase();
+    const toolDesc = (tool.description || '').toLowerCase();
     
-    // Check if tool matches any of the identified categories
-    return matchedCategories.some(category => {
-      // Check if tool name or description contains the category name
-      if (toolName.includes(category) || toolDesc.includes(category)) {
-        return true;
-      }
-      
-      // Check if tool matches keywords for this category
-      return toolCategories[category].some(keyword => 
-        toolName.includes(keyword) || toolDesc.includes(keyword)
-      );
-    });
+    // Check if the tool name or description contains "orderline" or "token"
+    return toolName.includes('orderline') || 
+           toolName.includes('order line') ||
+           toolDesc.includes('orderline') ||
+           toolDesc.includes('order line') ||
+           toolName.includes('token') ||
+           toolDesc.includes('token');
   });
   
-  // Make sure we don't filter out too many tools
-  if (relevantTools.length < allTools.length * 0.1) {
-    // If we've filtered too aggressively, add more tools back
-    const additionalTools = allTools
-      .filter(tool => !relevantTools.includes(tool))
-      .slice(0, Math.floor(allTools.length * 0.2));
-      
-    logWithTimestamp(`Adding ${additionalTools.length} additional tools to complement the ${relevantTools.length} relevant ones`);
-    return [...relevantTools, ...additionalTools];
+  // Log how many tools we're including
+  const orderlineTools = filteredTools.filter(tool => 
+    tool.name.toLowerCase().includes('orderline') || 
+    tool.name.toLowerCase().includes('order line') ||
+    (tool.description || '').toLowerCase().includes('orderline') ||
+    (tool.description || '').toLowerCase().includes('order line')
+  );
+  
+  const tokenTools = filteredTools.filter(tool => 
+    tool.name.toLowerCase().includes('token') || 
+    (tool.description || '').toLowerCase().includes('token')
+  );
+  
+  console.log(`=====================================`);
+  console.log(`TOOL FILTERING SUMMARY:`);
+  console.log(`Total tools available: ${allTools.length}`);
+  console.log(`OrderLine tools included: ${orderlineTools.length}`);
+  console.log(`Token tools included: ${tokenTools.length}`);
+  console.log(`Total tools after filtering: ${filteredTools.length}`);
+  console.log(`=====================================`);
+  
+  // If we didn't find any tools matching our criteria, return a minimal set
+  if (filteredTools.length === 0) {
+    console.log(`WARNING: No OrderLine or Token tools found. Using first 5 tools as fallback.`);
+    return allTools.slice(0, 5);
   }
   
-  return relevantTools;
+  return filteredTools;
 }
 
 async function processMessage(messageId: string) {
@@ -743,8 +720,12 @@ async function processMessage(messageId: string) {
     // Convert back to array
     const uniqueTools = Array.from(toolMap.values());
     
+    // Apply our filter to specifically include only OrderLine and Token tools
+    const filteredUniqueTools = filterToolsByContent(uniqueTools, "orderline token");
+    console.log(`Filtered from ${uniqueTools.length} to ${filteredUniqueTools.length} tools`);
+    
     // We make this variable so it can be modified later if needed
-    let tools = uniqueTools.map((tool) => ({
+    let tools = filteredUniqueTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.inputSchema,
