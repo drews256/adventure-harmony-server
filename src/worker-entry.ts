@@ -193,6 +193,8 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
   const filteredTools = allTools.filter(tool => {
     const toolName = (tool.name || '').toLowerCase();
     const toolDesc = (tool.description || '').toLowerCase();
+
+    console.log(`Tool name: ${toolName}, Tool description: ${toolDesc}`);
     
     // Check if the tool name or description contains "orderline" or "token"
     return toolName.includes('orderline') || 
