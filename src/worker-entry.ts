@@ -194,8 +194,6 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
     const toolName = (tool.name || '').toLowerCase();
     const toolDesc = (tool.description || '').toLowerCase();
 
-    console.log(`Tool name: ${toolName}, Tool description: ${toolDesc}`);
-    
     // Check if the tool name or description contains "orderline" or "token"
            toolName.includes('order') ||
            toolDesc.includes('order') ||
@@ -334,7 +332,6 @@ async function processMessage(messageId: string) {
     
     // Process all messages, including those outside current chain
     const allMessagesArray = allPhoneMessages || [];
-    console.log(`Found ${allMessagesArray.length} total messages for phone number ${message.phone_number}, including messages outside current chain`);
     
     // Combine all message sources, prioritizing tool-related messages
     const regularMessages = [
@@ -624,11 +621,66 @@ For example, if you see I previously asked about hiking trails and you already f
 
 Here's my current message: ${message.content}`;
     
-    const messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: enhancedPrompt }];
+    // Create initial message array
+    let messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: enhancedPrompt }];
     
-    // Single log line showing the complete conversation history being sent to Claude
-    console.log('CLAUDE CONVERSATION HISTORY:', JSON.stringify(messageWithCurrentContent, null, 2));
+    // Check token count
+    let tokenCount = estimateTokenCount(messageWithCurrentContent, tools);
+    console.log(`Initial estimated token count: ${tokenCount}`);
     
+    // If token count is too high, reduce the number of messages from oldest to newest
+    if (tokenCount > 30000) {
+      console.log('Token count is high (>30k), reducing message history to fit within token limits');
+      
+      // Keep the newest 50% of regular messages by default
+      let messagesToKeep = Math.ceil(cleanedMessages.length * 0.5);
+      
+      // Try different reductions until we get under 30k tokens
+      while (tokenCount > 30000 && messagesToKeep > 5) {
+        // Get the most recent messages, prioritizing tool results
+        const toolMessages = cleanedMessages.filter(msg => 
+          Array.isArray(msg.content) && 
+          msg.content.some((block: any) => block.type === 'tool_use' || block.type === 'tool_result')
+        );
+        
+        // Regular text messages (sort by recency - newest first)
+        const textMessages = cleanedMessages
+          .filter(msg => !Array.isArray(msg.content))
+          .slice(-messagesToKeep); // Keep only most recent messages
+        
+        // Reconstruct with reduced message count, maintaining chronological order
+        const reducedMessages = [...toolMessages, ...textMessages]
+          .sort((a, b) => {
+            // Simple sort based on position in the original array
+            return cleanedMessages.indexOf(a) - cleanedMessages.indexOf(b);
+          });
+        
+        // Create new message array with reduced history
+        messageWithCurrentContent = [...reducedMessages, { role: 'user' as const, content: enhancedPrompt }];
+        
+        // Recalculate token count
+        tokenCount = estimateTokenCount(messageWithCurrentContent, tools);
+        console.log(`Reduced to ${reducedMessages.length} messages, new token count: ${tokenCount}`);
+        
+        // Reduce by another 5 messages if still too large
+        messagesToKeep -= 5;
+      }
+      
+      // If we still can't get under the limit, add a warning to the prompt
+      if (tokenCount > 30000) {
+        // Add warning about limited history
+        const reducedPrompt = `NOTE: Due to the large conversation history, I only have access to the most recent messages. Some earlier context may be missing.
+
+${enhancedPrompt}`;
+        
+        // Replace the last message with the reduced prompt
+        messageWithCurrentContent[messageWithCurrentContent.length - 1].content = reducedPrompt;
+        
+        // Final token count
+        tokenCount = estimateTokenCount(messageWithCurrentContent, tools);
+        console.log(`Final reduction with warning message, token count: ${tokenCount}`);
+      }
+    }
     // Call Claude with retry logic
     const response = await withRetry(
       () => anthropic.messages.create({
