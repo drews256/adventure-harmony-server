@@ -773,7 +773,7 @@ async function processMessage(messageId: string) {
     
     logWithTimestamp('Calling Claude with cleaned conversation history');
     
-    console.log('Sending messages to Claude with the following history:', messageWithCurrentContent);
+    console.log('Sending messages to Claude with the following history content:', messageWithCurrentContent.map(m => m.content));
     
     // Call Claude with retry logic
     const response = await withRetry(
