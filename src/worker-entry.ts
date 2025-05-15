@@ -597,7 +597,10 @@ async function processMessage(messageId: string) {
       description: tool.description,
       input_schema: tool.inputSchema,
     }));
-    
+
+    tools.map((tool) => {
+      console.log(`Tool: ${tool.name}, Description: ${tool.description}`);
+    })
 
     // Validate and fix conversation history before cleaning
     const validatedMessages = validateAndFixConversationHistory(messages);
@@ -607,7 +610,11 @@ async function processMessage(messageId: string) {
     
     // Add instructions to reference all previous messages and use existing tool results
     const enhancedPrompt = `
-    The primary interface you're corresponding with is through text messages. Also - don't refer to the tools by name - that's confusing. Refer to the tools using concepts that are relatable to someone running an outfitting business.  
+    The primary interface you're corresponding with is through text messages. 
+
+    It's relatively important that you keep your responses short and to the point to that we can handle it like the text message that it is.
+
+    Also - don't refer to the tools by name - that's confusing. Refer to the tools using concepts that are relatable to someone running an outfitting business.  
 
     You're corresponding with a client who is managing an outfitter, that outfitter has a website and accepts bookings (also called orders or orderlines). They present those offerings as listings in a plugin page on their websites and we accept bookings in many ways. We can create bookings through the plugin on their website, or we can create bookings through the phone, they can also create manual bookings through the website. Sometimes they create completely custom bookings that don't relate to listings too.  
 
