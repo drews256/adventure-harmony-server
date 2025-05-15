@@ -589,34 +589,10 @@ async function processMessage(messageId: string) {
     // Create GoGuide client
     const goGuideClient = createGoGuideClient(mcp, supabase);
     
-    // Get conversation context from the message history
-    const messageContext = determineConversationContext(messages);
-    
-    // Get relevant tools based on context
-    const relevantTools = await getRelevantTools({ 
-      ...message, 
-      conversation_history: messages,
-      request_text: message.content
-    }, goGuideClient);
-    
-    // Add any specific tool suggestions based on the current message
-    const suggestedTools = suggestToolsForMessage(message.content, await goGuideClient.getTools());
-    
-    // Use a Map to deduplicate tools by name
-    const toolMap = new Map();
-    
-    // Add relevant tools to map (using name as key to ensure uniqueness)
-    [...relevantTools, ...suggestedTools].forEach(tool => {
-      if (!toolMap.has(tool.name)) {
-        toolMap.set(tool.name, tool);
-      }
-    });
-    
-    // Convert back to array
-    const uniqueTools = Array.from(toolMap.values());
-    
+    const allTools = await goGuideClient.getTools();
+
     // Apply our filter to specifically include only OrderLine and Token tools
-    const filteredUniqueTools = filterToolsByContent(uniqueTools, "orderline token");
+    const filteredUniqueTools = filterToolsByContent(allTools, "orderline token");
     
     // We make this variable so it can be modified later if needed
     let tools = filteredUniqueTools.map((tool) => ({
