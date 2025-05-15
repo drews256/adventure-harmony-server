@@ -317,11 +317,37 @@ async function processMessage(messageId: string) {
     // Combine tool interactions and their results
     const allToolRelatedMessages = [...toolInteractions, ...toolResultMessages];
     
-    // Include all messages but prioritize most recent ones
-    const recentMessages = uniqueHistory
-      .filter(msg => !allToolRelatedMessages.some(ti => ti.id === msg.id)) // exclude tool interactions to avoid duplication
+    // Get ALL messages for this phone number, not just those in the current conversation chain
+    // This allows us to include messages outside the current chain
+    const { data: allPhoneMessages, error: allMessagesError } = await supabase
+      .from('conversation_messages')
+      .select('*')
+      .eq('phone_number', message.phone_number)
+      .order('created_at', { ascending: false })
+      .limit(50);  // Increased limit to include more message history
+      
+    if (allMessagesError) {
+      console.error('Error fetching all phone messages:', allMessagesError);
+    }
+    
+    // Process all messages, including those outside current chain
+    const allMessagesArray = allPhoneMessages || [];
+    console.log(`Found ${allMessagesArray.length} total messages for phone number ${message.phone_number}, including messages outside current chain`);
+    
+    // Combine all message sources, prioritizing tool-related messages
+    const regularMessages = [
+      ...uniqueHistory.filter(msg => !allToolRelatedMessages.some(ti => ti.id === msg.id)), // Current chain
+      ...allMessagesArray.filter(msg => 
+        // Only include messages not already in the history and not tool-related
+        !uniqueHistory.some(h => h.id === msg.id) && 
+        !allToolRelatedMessages.some(ti => ti.id === msg.id)
+      )
+    ];
+    
+    // Sort and take most recent messages, but include more to capture those outside the chain
+    const recentMessages = regularMessages
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, 10) // Take most recent 10 regular messages
+      .slice(0, 25) // Take more messages to include those outside the chain
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()); // Sort back in chronological order
     
     // Combine and convert to Claude format
@@ -603,7 +629,15 @@ async function processMessage(messageId: string) {
     
     // Clean conversation history to reduce token usage
     const cleanedMessages = cleanConversationHistory(validatedMessages);
-    const messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: message.content }];
+    
+    // Add instructions to reference all previous messages, even those outside the current chain
+    const enhancedPrompt = `I'm reviewing our conversation history. Please reference ALL previous messages in your response, including ones that might seem to be from a separate conversation. 
+
+Don't be confused by messages that seem unrelated - I expect you to have access to my entire message history, so treat all previous messages as relevant context.
+
+Here's my current message: ${message.content}`;
+    
+    const messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: enhancedPrompt }];
     
     // Single log line showing the complete conversation history being sent to Claude
     console.log('CLAUDE CONVERSATION HISTORY:', JSON.stringify(messageWithCurrentContent, null, 2));
