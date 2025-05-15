@@ -204,6 +204,7 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
   const filteredTools = allTools.filter(tool => {
     const toolName = (tool.name || '').toLowerCase();
     const toolDesc = (tool.description || '').toLowerCase();
+    console.log('Tool:', tool.name, tool.description);
 
     // Check if the tool name or description contains "orderline" or "token"
            toolName.includes('order') ||
@@ -213,9 +214,14 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
            toolName.includes('token') ||
            toolDesc.includes('token');
   });
+
+  filteredTools.map((tool) => {
+    console.log('Filtered tools:', tool.name);
+  })
   
   // If we didn't find any tools matching our criteria, return a minimal set
   if (filteredTools.length === 0) {
+    console.log('No tools found, returning minimal set');
     return allTools.slice(0, 5);
   }
   
@@ -608,10 +614,6 @@ async function processMessage(messageId: string) {
       description: tool.description,
       input_schema: tool.inputSchema,
     }));
-
-    tools.map((tool) => {
-      console.log(`Tool: ${tool.name}, Description: ${tool.description}`);
-    })
 
     // Validate and fix conversation history before cleaning
     const validatedMessages = validateAndFixConversationHistory(messages);
