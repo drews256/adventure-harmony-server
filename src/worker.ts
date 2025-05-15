@@ -181,6 +181,7 @@ function cleanConversationHistory(messages: any[]): any[] {
         
         // For tool result blocks, simplify content
         if (block.type === 'tool_result') {
+          console.log('Tool result', block);
           return {
             type: 'tool_result',
             tool_use_id: block.tool_use_id,
@@ -272,7 +273,11 @@ async function processJob(job: ConversationJob) {
       ...cleanedHistory,
       {
         role: 'user' as const,
-        content: job.request_text
+        content: 
+          `You're a assistant that uses tools available to you to help the user. 
+          Using the following request and conversation context the job.request_text
+          and job.conversation_history please use the tools to help the user.
+          Here is the request: ${job.request_text}`
       }
     ];
     
