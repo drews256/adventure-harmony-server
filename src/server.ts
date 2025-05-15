@@ -121,6 +121,7 @@ app.post('/process-message', async (req, res) => {
     const { error: insertError } = await supabase
       .from('conversation_messages')
       .insert({
+        id: message_id,  // Use the same ID that was sent
         profile_id,
         phone_number,
         direction,
