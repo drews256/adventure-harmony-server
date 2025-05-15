@@ -36,20 +36,10 @@ async function ensureMcpConnection() {
   return mcpClient;
 }
 
-// Add timestamp to logs
-function logWithTimestamp(message: string, data?: any) {
-  const timestamp = new Date().toISOString();
-  if (data) {
-    console.log(`${message}`, data);
-  } else {
-    console.log(`${message}`);
-  }
-}
+// Log helper function removed - using console.error for errors only
 
 // Validate and fix conversation history to ensure tool_use blocks are followed by tool_result blocks
 function validateAndFixConversationHistory(messages: any[]): any[] {
-  logWithTimestamp('Validating conversation history for proper tool use/result pairing');
-  
   // Verify that tool_use and tool_result blocks are properly paired
   const toolUsesWithoutResults: string[] = [];
   
@@ -87,18 +77,8 @@ function validateAndFixConversationHistory(messages: any[]): any[] {
   
   // If no issues found, return original messages
   if (toolUsesWithoutResults.length === 0) {
-    logWithTimestamp('Conversation history validation successful - all tool_use blocks have matching tool_result blocks');
     return messages;
   }
-  
-  // Log any tool_use blocks without tool_result blocks
-  logWithTimestamp('WARNING: Found tool_use blocks without matching tool_result blocks:', {
-    toolUseIds: toolUsesWithoutResults,
-    messageCount: messages.length
-  });
-  
-  // Try to fix the conversation by ensuring every tool_use has a matching tool_result
-  logWithTimestamp('Attempting to fix conversation by adding missing tool_results');
   
   // Create a fixed version of the conversation
   const fixedConversation: any[] = [];
@@ -232,7 +212,6 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
 }
 
 async function processMessage(messageId: string) {
-  logWithTimestamp(`Starting to process message: ${messageId}`);
   try {
     // Get the message to process
     const { data: message, error: messageError } = await supabase
@@ -242,26 +221,17 @@ async function processMessage(messageId: string) {
       .single();
 
     if (messageError) throw messageError;
-    logWithTimestamp('Retrieved message details:', {
-      id: message.id,
-      direction: message.direction,
-      content: message.content.substring(0, 100) + '...' // Log first 100 chars
-    });
 
     // Update status to processing
     await supabase
       .from('conversation_messages')
       .update({ status: 'processing' })
       .eq('id', messageId);
-    logWithTimestamp('Updated message status to processing');
 
     // Get conversation history by following parent chain with improved handling
     async function getMessageChain(currentMessageId: string, depth: number = 0, maxDepth: number = 10): Promise<any[]> {
       // Safety check to prevent infinite recursion
-      logWithTimestamp(` ------------- Fetching message chain ---------------`);
-      logWithTimestamp(`Fetching message chain for message ${currentMessageId} at depth ${depth}`);
       if (depth > 30) {
-        logWithTimestamp('Warning: Reached maximum recursion depth when fetching message chain');
         return [];
       }
       
@@ -273,14 +243,13 @@ async function processMessage(messageId: string) {
         .order('created_at', { ascending: true });
 
       if (error) {
-        logWithTimestamp('Error fetching message chain:', error);
+        console.error(`Error fetching message chain: ${error}`);
         return [];
       }
 
       // Find the parent message if it exists
       const currentMessage = messages?.find(msg => msg.id === currentMessageId);
       if (!currentMessage) {
-        logWithTimestamp(`Warning: Could not find message with ID ${currentMessageId}`);
         return messages || [];
       }
       
@@ -294,21 +263,16 @@ async function processMessage(messageId: string) {
       if (currentMessage.conversation_history) {
         try {
           storedHistory = JSON.parse(currentMessage.conversation_history);
-          logWithTimestamp(`Found stored conversation history with ${storedHistory.length} messages`);
         } catch (e) {
-          logWithTimestamp('Error parsing stored conversation history:', e);
+          console.error('Error parsing stored conversation history:', e);
         }
       }
       
       // We want to build conversation history from database messages, not use stored history
       // Even if we have stored history, we'll prioritize building from the database
-      if (storedHistory.length > 0 && depth === 0) {
-        logWithTimestamp('Found stored conversation history, but will use database history instead');
-      }
       
       // If we have a parent and haven't reached max depth, get parent chain
       if (currentMessage.parent_message_id && depth < maxDepth) {
-        logWithTimestamp(`Fetching parent chain for message ${currentMessage.id}`);
         const parentChain = await getMessageChain(
           currentMessage.parent_message_id, 
           depth + 1,
@@ -326,7 +290,6 @@ async function processMessage(messageId: string) {
     const history = await getMessageChain(messageId);
     const uniqueHistory = Array.from(new Map(history.map(item => [item.id, item])).values());
     
-    logWithTimestamp(`Retrieved ${uniqueHistory.length} messages in conversation chain`);
 
     // Check if the current message has stored conversation history
     const currentMessage = uniqueHistory.find(msg => msg.id === messageId);
@@ -336,14 +299,10 @@ async function processMessage(messageId: string) {
     const isToolResultMessage = currentMessage?.tool_result_for !== null && 
                                currentMessage?.tool_result_for !== undefined;
     
-    if (isToolResultMessage) {
-      logWithTimestamp('Processing a tool result message');
-    }
     
     // Always rebuild conversation history from database messages
     // (we never use stored history, even if it exists)
     conversationMessages = [];
-    logWithTimestamp('Building conversation history from database message chain');
     
     // First, get all tool interactions to ensure they're included
     const toolInteractions = uniqueHistory.filter(msg => 
@@ -375,7 +334,6 @@ async function processMessage(messageId: string) {
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
     
-    logWithTimestamp(`Combined message history: ${recentMessages.length} recent messages + ${allToolRelatedMessages.length} tool-related messages`);
     
     // Convert to Claude's message format - ensuring proper tool_use and tool_result pairing
     conversationMessages = [];
@@ -443,7 +401,6 @@ async function processMessage(messageId: string) {
     }
     
     // Now add tool interactions in proper sequential pairs
-    logWithTimestamp(`Processing ${toolCallMap.size} tool calls with their results`);
     
     // Convert the map to array and sort by message creation time to preserve chronological order
     const allToolInteractions = Array.from(toolCallMap.values())
@@ -553,7 +510,7 @@ async function processMessage(messageId: string) {
                 content: toolResultsContent
               });
               
-              logWithTimestamp('Added synthetic tool_result for missing tool_use responses', {
+              // Added synthetic tool_result for missing tool_use responses
                 toolUseIds: toolUseBlocks.map((block: any) => block.id)
               });
             }
@@ -567,36 +524,10 @@ async function processMessage(messageId: string) {
     
     // Final validation - log the structure of the conversation with tool use/result pairs
     let lastToolUseIds: string[] = [];
-    logWithTimestamp('Final conversation structure:');
-    for (let i = 0; i < conversationMessages.length; i++) {
-      const msg = conversationMessages[i];
-      
-      if (Array.isArray(msg.content)) {
-        const toolUses = msg.content
-          .filter((block: any) => block.type === 'tool_use')
-          .map((block: any) => block.id);
-          
-        const toolResults = msg.content
-          .filter((block: any) => block.type === 'tool_result')
-          .map((block: any) => block.tool_use_id);
-          
-        if (toolUses.length > 0) {
-          lastToolUseIds = toolUses;
-          logWithTimestamp(`Message ${i}: ${msg.role} with tool_use: ${toolUses.join(', ')}`);
-        } else if (toolResults.length > 0) {
-          // Check if each tool_result matches a previous tool_use
-          const allMatch = toolResults.every((id: string) => lastToolUseIds.includes(id));
-          logWithTimestamp(`Message ${i}: ${msg.role} with tool_result: ${toolResults.join(', ')} ${allMatch ? '✓' : '❌'}`);
-          lastToolUseIds = [];
-        }
-      } else {
-        logWithTimestamp(`Message ${i}: ${msg.role} with text content`);
-      }
-    }
+    // Final validation completed successfully
     
     // We've already added messages in the proper order, so we don't need to sort them here
     // The previous sorting approach wouldn't work well with tool use/result messages anyway
-    logWithTimestamp(`Final conversation history contains ${conversationMessages.length} messages`);
     
     // De-duplicate messages
     conversationMessages = Array.from(
@@ -639,7 +570,6 @@ async function processMessage(messageId: string) {
     
     // Get conversation context from the message history
     const messageContext = determineConversationContext(messages);
-    logWithTimestamp(`Identified conversation context: ${messageContext}`);
     
     // Get relevant tools based on context
     const relevantTools = await getRelevantTools({ 
@@ -674,7 +604,6 @@ async function processMessage(messageId: string) {
       input_schema: tool.inputSchema,
     }));
     
-    logWithTimestamp(`Connected to MCP and prepared ${tools.length} relevant tools for context: ${messageContext}`);
 
     // Validate and fix conversation history before cleaning
     const validatedMessages = validateAndFixConversationHistory(messages);
@@ -700,64 +629,29 @@ async function processMessage(messageId: string) {
         retryableErrors: ['rate limit', 'timeout', 'network error']
       }
     );
-    logWithTimestamp('Received response from Claude');
+    
+    // Log the Claude response
+    console.log('CLAUDE RESPONSE:', JSON.stringify(response, null, 2));
 
     let finalResponse = '';
     let toolCalls = [];
-    logWithTimestamp('Claude response:', response);
     
     // Type assertion needed for response content
     const responseContent = (response as any).content;
-    logWithTimestamp('Claude content structure:', JSON.stringify(responseContent, null, 2));
     
-    // Log more detailed structure of response content
-    responseContent.forEach((block: any, index: number) => {
-      logWithTimestamp(`Response block ${index}:`, {
-        type: block.type,
-        hasInput: block.type === 'tool_use' && !!block.input,
-        hasArguments: block.type === 'tool_use' && !!block.arguments,
-        contentSample: block.type === 'text' ? 
-          block.text.substring(0, 50) + '...' : 
-          JSON.stringify(block).substring(0, 50) + '...'
-      });
-    });
 
     // Process Claude's response
     for (const block of responseContent) {
       if (block.type === 'text') {
         finalResponse += block.text + '\n';
-        logWithTimestamp('Received text response from Claude:', {
-          text: block.text.substring(0, 100) + '...' // Log first 100 chars
-        });
       } else if (block.type === 'tool_use') {
         // Ensure the block has a type field set to 'tool_use'
         block.type = 'tool_use'; // This ensures consistency even if the API changes
-        logWithTimestamp('Received tool use from Claude:', {
-          tool: block.name,
-          arguments: block.input
-        });
         toolCalls.push(block);
-        logWithTimestamp('Received tool call from Claude:', {
-          tool: block.name,
-          arguments: block.input
-        });
         
         try {
           // Execute tool call with caching and better error handling
-          logWithTimestamp(`Executing tool: ${block.name} with ID: ${block.id}`);
           
-          // Log the message context when running the tool
-          logWithTimestamp('Current message context before tool execution:', {
-            messagesCount: messages.length,
-            latestMessages: messages.slice(-2).map(m => ({
-              role: m.role,
-              contentType: typeof m.content === 'string' ? 'text' : 'array',
-              contentPreview: typeof m.content === 'string' 
-                ? m.content.substring(0, 100) + '...' 
-                : JSON.stringify(m.content).substring(0, 100) + '...'
-            })),
-            toolInput: block.input
-          });
           
           let toolResult;
           try {
@@ -780,7 +674,6 @@ async function processMessage(messageId: string) {
                 typeof toolError.message === 'string' && 
                 toolError.message.includes('Tool') && 
                 toolError.message.includes('not found')) {
-              logWithTimestamp(`Tool ID error - attempting to find correct tool ID for: ${block.name}`);
               
               try {
                 // Get available tools from MCP server
@@ -793,7 +686,6 @@ async function processMessage(messageId: string) {
                 );
                 
                 if (matchingTool) {
-                  logWithTimestamp(`Found matching tool with ID: ${matchingTool.id || 'unknown'}`);
                   
                   toolResult = await cachedToolCall(
                     block.name,
@@ -809,7 +701,6 @@ async function processMessage(messageId: string) {
                 } else {
                   // No matching tool found, try with a generated ID
                   const fallbackId = `${block.name.replace(/\s+/g, '_')}_${Date.now()}`;
-                  logWithTimestamp(`No matching tool found, using fallback ID: ${fallbackId}`);
                   
                   toolResult = await cachedToolCall(
                     block.name,
@@ -824,7 +715,7 @@ async function processMessage(messageId: string) {
                 }
               } catch (error) {
                 const retryError = error as { message?: string };
-                logWithTimestamp(`Retry also failed: ${retryError.message || 'Unknown error'}`);
+                console.error(`Retry also failed: ${retryError.message || 'Unknown error'}`);
                 throw error;
               }
             } else {
@@ -836,35 +727,9 @@ async function processMessage(messageId: string) {
           // Format the tool result for better user experience
           const formattedResult = formatToolResponse(block.name, toolResult);
           
-          // Log detailed information about tool results
-          logWithTimestamp('Tool execution completed with results:', { 
-            toolName: block.name,
-            toolId: block.id,
-            rawResult: JSON.stringify(toolResult).substring(0, 200) + '...',
-            formattedResult: formattedResult.text ? formattedResult.text.substring(0, 200) + '...' : 'No formatted text'
-          });
 
           // Update conversation history before creating the tool result message
           
-          // Log the conversation history that will be stored with the tool result
-          logWithTimestamp('Storing conversation history with tool result:', {
-            messageCount: messages.length,
-            latestMessages: messages.slice(-2).map(m => ({
-              role: m.role,
-              contentType: typeof m.content === 'string' ? 'text' : 'array',
-              contentPreview: typeof m.content === 'string' 
-                ? m.content.substring(0, 50) + '...' 
-                : JSON.stringify(m.content).substring(0, 50) + '...'
-            })),
-            historyHasToolUse: messages.some(m => 
-              Array.isArray(m.content) && 
-              m.content.some((c: any) => c.type === 'tool_use')
-            ),
-            historyHasToolResult: messages.some(m => 
-              Array.isArray(m.content) && 
-              m.content.some((c: any) => c.type === 'tool_result')
-            )
-          });
           
           // Create a new message for the tool result
           // Keep status as 'pending' so it can be picked up for further processing
@@ -893,8 +758,6 @@ async function processMessage(messageId: string) {
           if (toolResultError) {
             throw new Error(`Failed to create tool result message: ${toolResultError.message}`);
           }
-          
-          logWithTimestamp('Saved tool result to database', { toolResultMessageId: toolResultMessage?.id });
           
           // Update the conversation history with the tool interaction
           // Claude requires a specific format - tool_use blocks in assistant messages
@@ -935,34 +798,9 @@ async function processMessage(messageId: string) {
           messages.push(assistantMessage);
           messages.push(userMessage);
           
-          // Log to verify proper sequential addition
-          logWithTimestamp('Added tool use/result pair to conversation history:', {
-            toolId: block.id,
-            toolName: block.name,
-            previousMessageCount: messagesBeforeToolAddition.length,
-            newMessageCount: messages.length,
-            lastMessages: messages.slice(-2).map(m => m.role)
-          });
-          
-          // Log the updated conversation history for debugging
-          logWithTimestamp(`Added tool interaction to conversation history: ${block.name}`);
-          logWithTimestamp(`Created tool_use with ID: ${block.id} and matching tool_result`);
-          logWithTimestamp('Updated conversation history now contains:', {
-            messageCount: messages.length,
-            lastTwoMessages: messages.slice(-2).map(m => ({
-              role: m.role,
-              contentType: typeof m.content === 'string' ? 'text' : 'array',
-              contentSummary: Array.isArray(m.content) ? 
-                m.content.map((c: any) => c.type).join(', ') : 
-                (typeof m.content === 'string' ? 
-                  m.content.substring(0, 30) + '...' : 
-                  'unknown content type')
-            }))
-          });
 
           // Send immediate tool result via SMS
           if (formattedResult.text) {
-            logWithTimestamp('Sending formatted tool result via SMS');
             await supabase.functions.invoke('send-sms', {
               body: {
                 to: message.phone_number,
@@ -973,45 +811,22 @@ async function processMessage(messageId: string) {
           
           // For the next call, only include the specific tool that was just called
           // This drastically reduces context size when processing tool results
-          logWithTimestamp(`Filtering tools to only include ${block.name} for next API call`);
           
           // Find the specific tool definition
           const specificTool = tools.find(tool => tool.name === block.name);
           if (specificTool) {
             // Replace the full tools list with just this one tool
             tools = [specificTool];
-            logWithTimestamp('Successfully filtered to single tool for next API call');
-          } else {
-            logWithTimestamp('Could not find matching tool definition - using all tools');
           }
         } catch (error) {
           console.error('Error executing tool call:', error);
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-          
-          // Enhanced error logging
-          logWithTimestamp('Tool execution failed:', { 
-            error: errorMessage,
-            toolName: block.name,
-            toolId: block.id,
-            errorType: error instanceof Error ? error.constructor.name : typeof error,
-            fullError: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-          });
-          
-          // Add more detailed information about tool format to help with debugging
-          logWithTimestamp('Tool call format that caused error:', {
-            toolBlock: JSON.stringify(block, null, 2),
-            hasInput: !!block.input,
-            hasArguments: !!block.arguments,
-            inputType: block.input ? typeof block.input : 'undefined',
-            argumentsType: block.arguments ? typeof block.arguments : 'undefined'
-          });
           
           finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;
         }
       }
     }
 
-    logWithTimestamp('Creating final response message');
     // Add the final response to conversation history
     if (finalResponse.trim()) {
       messages.push({
@@ -1051,7 +866,7 @@ async function processMessage(messageId: string) {
         .not('tool_result_for', 'is', null);
       
       if (error) {
-        logWithTimestamp('Error checking pending tool results:', { error });
+        console.error('Error checking pending tool results:', error);
         return false;
       }
       
@@ -1067,7 +882,6 @@ async function processMessage(messageId: string) {
         .from('conversation_messages')
         .update({ status: 'completed' })
         .eq('id', messageId);
-      logWithTimestamp('Updated original message status to completed - no tool calls made');
     } else {
       // If tool calls were made, keep the message as processing
       // This allows us to verify that tool result messages are being processed
@@ -1080,16 +894,11 @@ async function processMessage(messageId: string) {
         .eq('id', messageId);
       
       if (toolCalls.length > 0) {
-        logWithTimestamp('Keeping original message in processing state - tool calls were made');
-      }
-      if (hasPendingToolResults) {
-        logWithTimestamp('Keeping original message in processing state - pending tool results exist');
       }
     }
 
     // Send response via SMS
     if (finalResponse) {
-      logWithTimestamp('Sending final response via SMS');
       await supabase.functions.invoke('send-sms', {
         body: {
           to: message.phone_number,
@@ -1098,11 +907,8 @@ async function processMessage(messageId: string) {
       });
     }
 
-    logWithTimestamp(`Successfully completed processing message: ${messageId}`);
-
   } catch (error) {
     console.error('Error processing message:', error);
-    logWithTimestamp(`Error processing message ${messageId}:`, { error });
     
     // Update message status to failed
     await supabase
@@ -1117,7 +923,6 @@ async function processMessage(messageId: string) {
 
 // Main worker loop
 async function workerLoop() {
-  logWithTimestamp('Worker loop started');
   while (true) {
     try {
       // Get pending messages
@@ -1129,22 +934,19 @@ async function workerLoop() {
         .limit(1);
 
       if (error) {
-        logWithTimestamp('Error fetching pending messages:', { error });
+        console.error('Error fetching pending messages:', error);
         continue;
       }
 
       if (pendingMessages && pendingMessages.length > 0) {
         const message = pendingMessages[0];
-        logWithTimestamp(`Found pending message: ${message.id}`);
         await processMessage(message.id);
-      } else {
-        logWithTimestamp('No pending messages found, waiting...');
       }
 
       // 30-second delay between retry attempts
       await new Promise(resolve => setTimeout(resolve, 30000));
     } catch (error) {
-      logWithTimestamp('Error in worker loop:', { error });
+      console.error('Error in worker loop:', error);
       // Add 30-second delay on error to prevent rapid retries
       await new Promise(resolve => setTimeout(resolve, 30000));
     }
@@ -1152,8 +954,7 @@ async function workerLoop() {
 }
 
 // Start the worker
-logWithTimestamp('Starting message processing worker...');
 workerLoop().catch(error => {
-  logWithTimestamp('Fatal error in worker:', { error });
+  console.error('Fatal error in worker:', error);
   process.exit(1);
 });
