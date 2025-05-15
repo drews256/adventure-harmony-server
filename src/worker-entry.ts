@@ -651,6 +651,7 @@ Here's my current message: ${message.content}`;
       () => anthropic.messages.create({
         model: "claude-3-5-sonnet-20241022",
         max_tokens: 1000,
+        temperature: 0.7,
         tools,
         tool_choice: {type: 'auto', disable_parallel_tool_use: false},
         messages: messageWithCurrentContent
