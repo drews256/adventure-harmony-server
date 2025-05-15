@@ -285,49 +285,72 @@ async function processJob(job: ConversationJob) {
     // Update job status to processing
     await updateJobStatus(job.id, 'processing');
     
-    // Get additional conversation history (last 5 messages)
-    const { data: recentMessages, error: historyError } = await supabase
+    // Get ALL conversation history for this phone number, not just the most recent
+    const { data: allMessages, error: historyError } = await supabase
       .from('claude_conversation_history')
       .select('*')
       .eq('phone_number', job.phone_number)
       .order('created_at', { ascending: false })
-      .limit(10);  // Get 10 most recent messages to ensure we have enough after filtering
+      .limit(100);  // Significantly increased limit to include messages outside the current chain
     
     if (historyError) {
       console.error('Error fetching conversation history:', historyError);
     }
     
-    // Filter and format the recent messages
+    // Filter and format the messages
     let additionalHistory: any[] = [];
-    if (recentMessages && recentMessages.length > 0) {
+    if (allMessages && allMessages.length > 0) {
       // Group messages by message_id to avoid duplicates from the same exchange
       const messageGroups = new Map<string, any[]>();
-      recentMessages.forEach(msg => {
+      allMessages.forEach(msg => {
         if (!messageGroups.has(msg.message_id)) {
           messageGroups.set(msg.message_id, []);
         }
         messageGroups.get(msg.message_id)!.push(msg);
       });
       
-      // Take up to 5 most recent unique message exchanges
-      const uniqueExchanges = Array.from(messageGroups.values())
-        .sort((a, b) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime())
-        .slice(0, 5);
+      // Include ALL message exchanges, not just recent ones
+      const allExchanges = Array.from(messageGroups.values())
+        .sort((a, b) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime());
+      
+      // For Claude's context, we'll use up to 15 most recent exchanges to avoid token limits
+      const claudeContextExchanges = allExchanges.slice(0, 15);
       
       // Flatten and convert to Claude format
-      additionalHistory = uniqueExchanges.flat()
+      additionalHistory = claudeContextExchanges.flat()
         .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
         .map(msg => ({
           role: msg.role,
           content: msg.content
         }));
       
-      console.log(`Retrieved ${additionalHistory.length} additional history messages`);
+      // Log the full conversation history for user awareness
+      const allMessagesCount = allExchanges.length;
+      const usedMessagesCount = claudeContextExchanges.length;
+      console.log(`Retrieved ${additionalHistory.length} messages from ${usedMessagesCount}/${allMessagesCount} total exchanges (including messages outside the current chain)`);
     }
     
     // Get conversation context and relevant tools
     // Include both the job's conversation history and the additional history
     const combinedHistory = [...additionalHistory, ...job.conversation_history];
+    
+    // Log the combined history to verify we're including messages outside the chain
+    console.log(`Combined history contains ${combinedHistory.length} total messages`);
+    console.log(`Job conversation history: ${job.conversation_history.length} messages`);
+    console.log(`Additional history: ${additionalHistory.length} messages`);
+    
+    // Log a sample of messages to verify content
+    if (additionalHistory.length > 0) {
+      console.log('Sample of additional history messages:');
+      const sampleSize = Math.min(3, additionalHistory.length);
+      for (let i = 0; i < sampleSize; i++) {
+        const msg = additionalHistory[i];
+        console.log(`[${i}] Role: ${msg.role}, Content: ${typeof msg.content === 'string' ? 
+          (msg.content.substring(0, 50) + '...') : 
+          'Complex content (array)'}`);
+      }
+    }
+    
     const context = determineConversationContext(combinedHistory);
     const relevantTools = await getRelevantTools(job, goGuideClient);
     
@@ -378,8 +401,10 @@ async function processJob(job: ConversationJob) {
           2. You have access to tools that can help answer questions, but users aren't explicitly granting permission for tool use.
           3. Do not mention tool usage in your responses - just provide helpful answers based on the tool results.
           4. GoGuide.io (https://www.GoGuide.io) specializes in outdoor adventures and travel experiences.
+          5. Be sure to reference ALL previous messages in the conversation history, even ones that may seem to be from a separate conversation chain.
+          6. Users expect you to have access to their entire message history, so don't act confused about messages from previous interactions.
           
-          Using the conversation context and the user's request, please help them in a friendly, conversational manner.
+          Using the COMPLETE conversation context and the user's request, please help them in a friendly, conversational manner.
           Here is the user's message: ${job.request_text}`
       }
     ];
