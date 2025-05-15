@@ -217,6 +217,63 @@ function estimateTokenCount(messages: any[], tools: any[]): number {
   return Math.ceil((messageText.length + toolText.length) / 4);
 }
 
+// Helper function to complete a job with a final response
+async function completeJobWithResponse(job: ConversationJob, finalResponse: string) {
+  // Save conversation history to both the history table and the message
+  await supabase.from('claude_conversation_history').insert([
+    {
+      profile_id: job.profile_id,
+      phone_number: job.phone_number,
+      role: 'user',
+      content: job.request_text,
+      message_id: job.message_id
+    },
+    {
+      profile_id: job.profile_id,
+      phone_number: job.phone_number,
+      role: 'assistant',
+      content: finalResponse,
+      message_id: job.message_id,
+      tool_calls: null
+    }
+  ]);
+  
+  // Get the original message to maintain parent-child relationship
+  const { data: originalMessage } = await supabase
+    .from('conversation_messages')
+    .select('*')
+    .eq('id', job.message_id)
+    .single();
+    
+  // Create a new message with the response and conversation history
+  await supabase
+    .from('conversation_messages')
+    .insert({
+      profile_id: job.profile_id,
+      phone_number: job.phone_number,
+      direction: 'outgoing',
+      content: finalResponse,
+      parent_message_id: job.message_id,
+      tool_calls: null,
+      conversation_history: JSON.stringify(job.conversation_history),
+      status: 'completed'
+    });
+
+  // Update job as completed
+  await updateJobStatus(job.id, 'completed', {
+    final_response: finalResponse,
+    conversation_history: job.conversation_history
+  });
+
+  // Send final response via SMS
+  await supabase.functions.invoke('send-sms', {
+    body: {
+      to: job.phone_number,
+      message: finalResponse
+    }
+  });
+}
+
 async function processJob(job: ConversationJob) {
   try {
     // Connect to MCP server if needed
@@ -228,8 +285,50 @@ async function processJob(job: ConversationJob) {
     // Update job status to processing
     await updateJobStatus(job.id, 'processing');
     
+    // Get additional conversation history (last 5 messages)
+    const { data: recentMessages, error: historyError } = await supabase
+      .from('claude_conversation_history')
+      .select('*')
+      .eq('phone_number', job.phone_number)
+      .order('created_at', { ascending: false })
+      .limit(10);  // Get 10 most recent messages to ensure we have enough after filtering
+    
+    if (historyError) {
+      console.error('Error fetching conversation history:', historyError);
+    }
+    
+    // Filter and format the recent messages
+    let additionalHistory: any[] = [];
+    if (recentMessages && recentMessages.length > 0) {
+      // Group messages by message_id to avoid duplicates from the same exchange
+      const messageGroups = new Map<string, any[]>();
+      recentMessages.forEach(msg => {
+        if (!messageGroups.has(msg.message_id)) {
+          messageGroups.set(msg.message_id, []);
+        }
+        messageGroups.get(msg.message_id)!.push(msg);
+      });
+      
+      // Take up to 5 most recent unique message exchanges
+      const uniqueExchanges = Array.from(messageGroups.values())
+        .sort((a, b) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime())
+        .slice(0, 5);
+      
+      // Flatten and convert to Claude format
+      additionalHistory = uniqueExchanges.flat()
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }));
+      
+      console.log(`Retrieved ${additionalHistory.length} additional history messages`);
+    }
+    
     // Get conversation context and relevant tools
-    const context = determineConversationContext(job.conversation_history);
+    // Include both the job's conversation history and the additional history
+    const combinedHistory = [...additionalHistory, ...job.conversation_history];
+    const context = determineConversationContext(combinedHistory);
     const relevantTools = await getRelevantTools(job, goGuideClient);
     
     // Add specific tool suggestions based on message content
@@ -260,7 +359,7 @@ async function processJob(job: ConversationJob) {
     // Clean conversation history to reduce token usage
     // Note: We always use conversation history from database messages, not stored history
     // Validate and fix the conversation history
-    const validatedHistory = validateAndFixConversationHistory(job.conversation_history);
+    const validatedHistory = validateAndFixConversationHistory(combinedHistory);
     
     // Clean conversation history to reduce token usage
     const cleanedHistory = cleanConversationHistory(validatedHistory);
@@ -271,10 +370,17 @@ async function processJob(job: ConversationJob) {
       {
         role: 'user' as const,
         content: 
-          `You're a assistant that uses tools available to you to help the user. 
-          Using the following request and conversation context the job.request_text
-          and job.conversation_history please use the tools to help the user.
-          Here is the request: ${job.request_text}`
+          `You're an assistant for GoGuide.io, a travel service that helps users plan and book outdoor adventure experiences.
+          You're communicating with the user via text message, so keep your responses concise and mobile-friendly.
+          
+          Important notes:
+          1. Users are texting you from their phones, so format your responses appropriately for SMS.
+          2. You have access to tools that can help answer questions, but users aren't explicitly granting permission for tool use.
+          3. Do not mention tool usage in your responses - just provide helpful answers based on the tool results.
+          4. GoGuide.io (https://www.GoGuide.io) specializes in outdoor adventures and travel experiences.
+          
+          Using the conversation context and the user's request, please help them in a friendly, conversational manner.
+          Here is the user's message: ${job.request_text}`
       }
     ];
     
@@ -306,6 +412,23 @@ async function processJob(job: ConversationJob) {
     let finalResponse = '';
     let toolCalls: ToolCallState[] = [];
 
+    // Check if the response contains a stop_reason
+    if ((response as any).stop_reason) {
+      console.log(`Response contains stop_reason: ${(response as any).stop_reason}`);
+      // If stop_reason is present, skip tool execution and return the text response immediately
+      
+      // Get the text content from the response
+      const responseContent = (response as any).content;
+      for (const block of responseContent) {
+        if (block.type === 'text') {
+          finalResponse += block.text + '\n';
+        }
+      }
+      
+      // Skip the rest of processing
+      return await completeJobWithResponse(job, finalResponse);
+    }
+    
     // Process each content block - type assertion needed since API types are complex
     const responseContent = (response as any).content;
     for (const block of responseContent) {
@@ -547,7 +670,7 @@ async function processJob(job: ConversationJob) {
       }
     }
 
-    // Save conversation history to both the history table and the message
+    // Save conversation history with tool calls if any
     await supabase.from('claude_conversation_history').insert([
       {
         profile_id: job.profile_id,

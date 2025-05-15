@@ -253,11 +253,6 @@ async function processMessage(messageId: string) {
         return messages || [];
       }
       
-      // Get tool interaction messages connected to this message
-      const toolInteractionMessages = messages?.filter(msg => 
-        msg.parent_message_id === currentMessageId && msg.tool_calls !== null
-      ) || [];
-      
       // See if there is stored conversation history
       let storedHistory: any[] = [];
       if (currentMessage.conversation_history) {
