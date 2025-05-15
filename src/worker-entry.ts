@@ -322,145 +322,144 @@ async function processMessage(messageId: string) {
     // (we never use stored history, even if it exists)
     conversationMessages = [];
     logWithTimestamp('Building conversation history from database message chain');
+    
+    // First, get all tool interactions to ensure they're included
+    const toolInteractions = uniqueHistory.filter(msg => 
+      (msg.tool_calls !== null && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) ||
+      (msg.content && (
+        typeof msg.content === 'string' && msg.content.includes('tool_result') ||
+        typeof msg.content === 'string' && msg.content.includes('Tool result')
+      ))
+    );
+    
+    // Also get tool results - messages that were created in response to tool calls
+    const toolResultMessages = uniqueHistory.filter(msg => 
+      msg.parent_message_id && 
+      toolInteractions.some(ti => ti.id === msg.parent_message_id)
+    );
+    
+    // Combine tool interactions and their results
+    const allToolRelatedMessages = [...toolInteractions, ...toolResultMessages];
+    
+    // Include all messages but prioritize most recent ones
+    const recentMessages = uniqueHistory
+      .filter(msg => !allToolRelatedMessages.some(ti => ti.id === msg.id)) // exclude tool interactions to avoid duplication
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 10) // Take most recent 10 regular messages
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()); // Sort back in chronological order
+    
+    // Combine and convert to Claude format
+    const allMessages = [...recentMessages, ...allToolRelatedMessages].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+    
+    logWithTimestamp(`Combined message history: ${recentMessages.length} recent messages + ${allToolRelatedMessages.length} tool-related messages`);
+    
+    // Convert to Claude's message format - ensuring proper tool_use and tool_result pairing
+    conversationMessages = [];
+    
+    // Log details about the messages we're about to process
+    logWithTimestamp('Messages from database being reconstructed into conversation history:', {
+      messageCount: allMessages.length,
+      regularMessages: allMessages.filter(msg => !msg.tool_calls || !Array.isArray(msg.tool_calls) || msg.tool_calls.length === 0).length,
+      toolCallMessages: allMessages.filter(msg => msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0).length,
+      toolResultMessages: allMessages.filter(msg => msg.tool_result_for).length
+    });
+    
+    // First, process regular messages
+    for (let i = 0; i < allMessages.length; i++) {
+      const msg = allMessages[i];
+      const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
       
-      // First, get all tool interactions to ensure they're included
-      const toolInteractions = uniqueHistory.filter(msg => 
-        (msg.tool_calls !== null && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) ||
-        (msg.content && (
-          typeof msg.content === 'string' && msg.content.includes('tool_result') ||
-          typeof msg.content === 'string' && msg.content.includes('Tool result')
-        ))
-      );
+      // Skip tool-related messages - we'll handle them specially
+      if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        continue;
+      }
       
-      // Also get tool results - messages that were created in response to tool calls
-      const toolResultMessages = uniqueHistory.filter(msg => 
-        msg.parent_message_id && 
-        toolInteractions.some(ti => ti.id === msg.parent_message_id)
-      );
-      
-      // Combine tool interactions and their results
-      const allToolRelatedMessages = [...toolInteractions, ...toolResultMessages];
-      
-      // Include all messages but prioritize most recent ones
-      const recentMessages = uniqueHistory
-        .filter(msg => !allToolRelatedMessages.some(ti => ti.id === msg.id)) // exclude tool interactions to avoid duplication
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 10) // Take most recent 10 regular messages
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()); // Sort back in chronological order
-      
-      // Combine and convert to Claude format
-      const allMessages = [...recentMessages, ...allToolRelatedMessages].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
-      
-      logWithTimestamp(`Combined message history: ${recentMessages.length} recent messages + ${allToolRelatedMessages.length} tool-related messages`);
-      
-      // Convert to Claude's message format - ensuring proper tool_use and tool_result pairing
-      conversationMessages = [];
-      
-      // Log details about the messages we're about to process
-      logWithTimestamp('Messages from database being reconstructed into conversation history:', {
-        messageCount: allMessages.length,
-        regularMessages: allMessages.filter(msg => !msg.tool_calls || !Array.isArray(msg.tool_calls) || msg.tool_calls.length === 0).length,
-        toolCallMessages: allMessages.filter(msg => msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0).length,
-        toolResultMessages: allMessages.filter(msg => msg.tool_result_for).length
+      // Add regular message
+      conversationMessages.push({
+        role,
+        content: msg.content
       });
-      
-      // First, process regular messages
-      for (let i = 0; i < allMessages.length; i++) {
-        const msg = allMessages[i];
-        const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
-        
-        // Skip tool-related messages - we'll handle them specially
-        if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-          continue;
-        }
-        
-        // Add regular message
-        conversationMessages.push({
-          role,
-          content: msg.content
-        });
-      }
-      
-      // Then, process tool calls and their results separately to ensure proper pairing
-      for (const msg of allMessages) {
-        // Only process messages with tool calls
-        if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-          // For each tool call in the message
-          for (const toolCall of msg.tool_calls) {
-            // Find the corresponding tool result message - either by tool_result_for field or parent relationship
-            const resultMsg = allMessages.find(m => 
-              (m.tool_result_for === toolCall.id) || // First try to match by tool result ID
-              (m.parent_message_id === msg.id && 
-              m.direction === 'outgoing' &&
-              (!m.tool_calls || m.tool_calls.length === 0)) // Not another tool call
-            );
-            
-            if (resultMsg) {
-              logWithTimestamp(`Found matching tool result message for tool call ${toolCall.id}`);
-            } else {
-              logWithTimestamp(`Warning: Could not find matching tool result for tool call ${toolCall.id}`, {
-                toolCall: toolCall.name,
-                messageId: msg.id,
-                resultMessages: allMessages
-                  .filter(m => m.parent_message_id === msg.id)
-                  .map(m => ({ id: m.id, direction: m.direction, hasToolCalls: m.tool_calls && m.tool_calls.length > 0 }))
-              });
-            }
-            
-            // Add the tool_use message (always from assistant)
-            conversationMessages.push({
-              role: 'assistant' as const,
-              content: [
-                { type: 'text', text: typeof msg.content === 'string' ? msg.content : 'Using tool:' },
-                { ...toolCall, type: 'tool_use' }
-              ]
-            });
-            
-            // Add the tool_result message (always from user)
-            conversationMessages.push({
-              role: 'user' as const,
-              content: [
-                {
-                  type: 'tool_result',
-                  tool_use_id: toolCall.id,
-                  content: resultMsg && typeof resultMsg.content === 'string' 
-                    ? resultMsg.content 
-                    : JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
-                }
-              ]
-            });
-          }
-        }
-      }
-      
-      // We've already added messages in the proper order, so we don't need to sort them here
-      // The previous sorting approach wouldn't work well with tool use/result messages anyway
-      logWithTimestamp(`Final conversation history contains ${conversationMessages.length} messages`);
-      
-      // Debug last message to ensure proper pairing
-      if (conversationMessages.length >= 2) {
-        const lastTwoMessages = conversationMessages.slice(-2);
-        logWithTimestamp('Last two messages in history:', {
-          secondLast: {
-            role: lastTwoMessages[0].role,
-            contentType: typeof lastTwoMessages[0].content === 'string' ? 'text' : 'array',
-            content: lastTwoMessages[0].content
-          },
-          last: {
-            role: lastTwoMessages[1].role,
-            contentType: typeof lastTwoMessages[1].content === 'string' ? 'text' : 'array',
-            content: lastTwoMessages[1].content
-          }
-        });
-      }
-      
-      // De-duplicate messages
-      conversationMessages = Array.from(
-        new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
-      );
     }
+    
+    // Then, process tool calls and their results separately to ensure proper pairing
+    for (const msg of allMessages) {
+      // Only process messages with tool calls
+      if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        // For each tool call in the message
+        for (const toolCall of msg.tool_calls) {
+          // Find the corresponding tool result message - either by tool_result_for field or parent relationship
+          const resultMsg = allMessages.find(m => 
+            (m.tool_result_for === toolCall.id) || // First try to match by tool result ID
+            (m.parent_message_id === msg.id && 
+            m.direction === 'outgoing' &&
+            (!m.tool_calls || m.tool_calls.length === 0)) // Not another tool call
+          );
+          
+          if (resultMsg) {
+            logWithTimestamp(`Found matching tool result message for tool call ${toolCall.id}`);
+          } else {
+            logWithTimestamp(`Warning: Could not find matching tool result for tool call ${toolCall.id}`, {
+              toolCall: toolCall.name,
+              messageId: msg.id,
+              resultMessages: allMessages
+                .filter(m => m.parent_message_id === msg.id)
+                .map(m => ({ id: m.id, direction: m.direction, hasToolCalls: m.tool_calls && m.tool_calls.length > 0 }))
+            });
+          }
+          
+          // Add the tool_use message (always from assistant)
+          conversationMessages.push({
+            role: 'assistant' as const,
+            content: [
+              { type: 'text', text: typeof msg.content === 'string' ? msg.content : 'Using tool:' },
+              { ...toolCall, type: 'tool_use' }
+            ]
+          });
+          
+          // Add the tool_result message (always from user)
+          conversationMessages.push({
+            role: 'user' as const,
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: toolCall.id,
+                content: resultMsg && typeof resultMsg.content === 'string' 
+                  ? resultMsg.content 
+                  : JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+              }
+            ]
+          });
+        }
+      }
+    }
+    
+    // We've already added messages in the proper order, so we don't need to sort them here
+    // The previous sorting approach wouldn't work well with tool use/result messages anyway
+    logWithTimestamp(`Final conversation history contains ${conversationMessages.length} messages`);
+    
+    // Debug last message to ensure proper pairing
+    if (conversationMessages.length >= 2) {
+      const lastTwoMessages = conversationMessages.slice(-2);
+      logWithTimestamp('Last two messages in history:', {
+        secondLast: {
+          role: lastTwoMessages[0].role,
+          contentType: typeof lastTwoMessages[0].content === 'string' ? 'text' : 'array',
+          content: lastTwoMessages[0].content
+        },
+        last: {
+          role: lastTwoMessages[1].role,
+          contentType: typeof lastTwoMessages[1].content === 'string' ? 'text' : 'array',
+          content: lastTwoMessages[1].content
+        }
+      });
+    }
+    
+    // De-duplicate messages
+    conversationMessages = Array.from(
+      new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
+    );
     
     // Final messages array for Claude
     const messages = conversationMessages;
@@ -948,4 +947,4 @@ logWithTimestamp('Starting message processing worker...');
 workerLoop().catch(error => {
   logWithTimestamp('Fatal error in worker:', { error });
   process.exit(1);
-}); 
+});
