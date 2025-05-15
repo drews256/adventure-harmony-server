@@ -71,13 +71,13 @@ function cleanConversationHistory(messages: any[]): any[] {
           return block;
         }
         
-        // For tool use blocks, keep essential fields only
+        // For tool use blocks, keep essential fields AND input (which is required)
         if (block.type === 'tool_use') {
           return {
             type: 'tool_use',
             id: block.id,
             name: block.name,
-            // Omit detailed 'input' which can be large
+            input: block.input || block.arguments || {}, // Ensure input is always present (required by API)
           };
         }
         
@@ -315,7 +315,12 @@ async function processJob(job: ConversationJob) {
             role: 'assistant' as const,
             content: [
               { type: 'text', text: finalResponse || '' },
-              block // This is the tool_use block
+              { 
+                type: 'tool_use',
+                id: block.id,
+                name: block.name,
+                input: block.input || block.arguments || {} // Ensure input is always present
+              }
             ]
           });
           
@@ -375,6 +380,39 @@ async function processJob(job: ConversationJob) {
             }))
           });
           
+          // Additional logging for the last two content blocks to verify proper tool_use formatting
+          if (toolResponseMessages.length >= 2) {
+            const lastTwoMessages = toolResponseMessages.slice(-2);
+            
+            lastTwoMessages.forEach((msg: any, msgIndex: number) => {
+              if (Array.isArray(msg.content)) {
+                msg.content.forEach((block: any, blockIndex: number) => {
+                  if (block.type === 'tool_use') {
+                    console.log(`Message ${msgIndex} tool_use block ${blockIndex} format:`, {
+                      id: block.id,
+                      name: block.name,
+                      hasInput: !!block.input,
+                      inputType: typeof block.input,
+                      inputSample: block.input ? JSON.stringify(block.input).substring(0, 50) + '...' : 'undefined'
+                    });
+                  }
+                });
+              }
+            });
+          }
+          
+          // Log the tools being sent to API
+          console.log('Sending the following tools to Claude:', {
+            toolCount: toolsToUse.length,
+            toolNames: toolsToUse.map(t => t.name),
+            firstToolSample: toolsToUse.length > 0 ? 
+              {
+                name: toolsToUse[0].name,
+                description: toolsToUse[0].description?.substring(0, 30) + '...',
+                hasInputSchema: !!toolsToUse[0].input_schema
+              } : 'no tools'
+          });
+          
           // Continue conversation with tool result
           const toolResponse = await withRetry(
             () => anthropic.messages.create({
@@ -418,6 +456,24 @@ async function processJob(job: ConversationJob) {
         } catch (error) {
           console.error('Error executing tool call:', error);
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+          
+          // Enhanced error logging
+          console.log('Tool execution failed:', { 
+            error: errorMessage,
+            toolName: block.name,
+            toolId: block.id,
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+            fullError: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+          });
+          
+          // Add more detailed information about tool format to help with debugging
+          console.log('Tool call format that caused error:', {
+            toolBlock: JSON.stringify(block, null, 2),
+            hasInput: !!block.input,
+            hasArguments: !!block.arguments,
+            inputType: block.input ? typeof block.input : 'undefined',
+            argumentsType: block.arguments ? typeof block.arguments : 'undefined'
+          });
           
           // Add error message to response
           finalResponse += `I encountered an error while trying to retrieve information: ${errorMessage}\n`;

@@ -63,13 +63,13 @@ function cleanConversationHistory(messages: any[]): any[] {
           return block;
         }
         
-        // For tool use blocks, keep essential fields only
+        // For tool use blocks, keep essential fields AND input (which is required)
         if (block.type === 'tool_use') {
           return {
             type: 'tool_use',
             id: block.id,
             name: block.name,
-            // Omit detailed 'input' which can be large
+            input: block.input || block.arguments || {}, // Ensure input is always present (required by API)
           };
         }
         
@@ -414,7 +414,12 @@ async function processMessage(messageId: string) {
             role: 'assistant' as const,
             content: [
               { type: 'text', text: typeof msg.content === 'string' ? msg.content : 'Using tool:' },
-              { ...toolCall, type: 'tool_use' }
+              { 
+                type: 'tool_use',
+                id: toolCall.id,
+                name: toolCall.name,
+                input: toolCall.input || toolCall.arguments || {} // Ensure input is always present
+              }
             ]
           });
           
@@ -533,6 +538,37 @@ async function processMessage(messageId: string) {
       }))
     });
     
+    // Additional logging for the last two content blocks to verify proper tool_use formatting
+    if (messageWithCurrentContent.length >= 2) {
+      const lastMessage = messageWithCurrentContent[messageWithCurrentContent.length - 1];
+      
+      if (Array.isArray(lastMessage.content)) {
+        lastMessage.content.forEach((block: any, index: number) => {
+          if (block.type === 'tool_use') {
+            logWithTimestamp(`Message tool_use block ${index} format:`, {
+              id: block.id,
+              name: block.name,
+              hasInput: !!block.input,
+              inputType: typeof block.input,
+              inputSample: block.input ? JSON.stringify(block.input).substring(0, 50) + '...' : 'undefined'
+            });
+          }
+        });
+      }
+    }
+    
+    // Log the tools being sent to API
+    logWithTimestamp('Sending the following tools to Claude:', {
+      toolCount: tools.length,
+      toolNames: tools.map(t => t.name),
+      firstToolSample: tools.length > 0 ? 
+        {
+          name: tools[0].name,
+          description: tools[0].description?.substring(0, 30) + '...',
+          hasInputSchema: !!tools[0].input_schema
+        } : 'no tools'
+    });
+    
     // Call Claude with retry logic
     const response = await withRetry(
       () => anthropic.messages.create({
@@ -555,7 +591,19 @@ async function processMessage(messageId: string) {
     
     // Type assertion needed for response content
     const responseContent = (response as any).content;
-    logWithTimestamp('Claude content:', responseContent);
+    logWithTimestamp('Claude content structure:', JSON.stringify(responseContent, null, 2));
+    
+    // Log more detailed structure of response content
+    responseContent.forEach((block: any, index: number) => {
+      logWithTimestamp(`Response block ${index}:`, {
+        type: block.type,
+        hasInput: block.type === 'tool_use' && !!block.input,
+        hasArguments: block.type === 'tool_use' && !!block.arguments,
+        contentSample: block.type === 'text' ? 
+          block.text.substring(0, 50) + '...' : 
+          JSON.stringify(block).substring(0, 50) + '...'
+      });
+    });
 
     // Process Claude's response
     for (const block of responseContent) {
@@ -735,7 +783,12 @@ async function processMessage(messageId: string) {
             role: 'assistant' as const,
             content: [
               { type: 'text', text: finalResponse || 'Using tool:' },
-              { ...block, type: 'tool_use' } // Ensure the block has type: 'tool_use'
+              { 
+                type: 'tool_use',
+                id: block.id,
+                name: block.name,
+                input: block.input || block.arguments || {} // Ensure input is always present
+              }
             ]
           });
           
@@ -796,7 +849,25 @@ async function processMessage(messageId: string) {
         } catch (error) {
           console.error('Error executing tool call:', error);
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-          logWithTimestamp('Tool execution failed:', { error: errorMessage });
+          
+          // Enhanced error logging
+          logWithTimestamp('Tool execution failed:', { 
+            error: errorMessage,
+            toolName: block.name,
+            toolId: block.id,
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+            fullError: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+          });
+          
+          // Add more detailed information about tool format to help with debugging
+          logWithTimestamp('Tool call format that caused error:', {
+            toolBlock: JSON.stringify(block, null, 2),
+            hasInput: !!block.input,
+            hasArguments: !!block.arguments,
+            inputType: block.input ? typeof block.input : 'undefined',
+            argumentsType: block.arguments ? typeof block.arguments : 'undefined'
+          });
+          
           finalResponse += `Sorry, I encountered an error while trying to use one of my tools. ${errorMessage}\n`;
         }
       }
