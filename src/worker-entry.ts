@@ -441,7 +441,8 @@ async function processMessage(messageId: string) {
     // Convert back to array
     const uniqueTools = Array.from(toolMap.values());
     
-    const tools = uniqueTools.map((tool) => ({
+    // We make this variable so it can be modified later if needed
+    let tools = uniqueTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.inputSchema,
@@ -509,6 +510,19 @@ async function processMessage(messageId: string) {
         try {
           // Execute tool call with caching and better error handling
           logWithTimestamp(`Executing tool: ${block.name} with ID: ${block.id}`);
+          
+          // Log the message context when running the tool
+          logWithTimestamp('Current message context before tool execution:', {
+            messagesCount: messages.length,
+            latestMessages: messages.slice(-2).map(m => ({
+              role: m.role,
+              contentType: typeof m.content === 'string' ? 'text' : 'array',
+              contentPreview: typeof m.content === 'string' 
+                ? m.content.substring(0, 100) + '...' 
+                : JSON.stringify(m.content).substring(0, 100) + '...'
+            })),
+            toolInput: block.input
+          });
           
           let toolResult;
           try {
@@ -586,8 +600,13 @@ async function processMessage(messageId: string) {
           
           // Format the tool result for better user experience
           const formattedResult = formatToolResponse(block.name, toolResult);
-          logWithTimestamp('Tool execution completed:', { 
-            result: JSON.stringify(toolResult).substring(0, 200) + '...' 
+          
+          // Log detailed information about tool results
+          logWithTimestamp('Tool execution completed with results:', { 
+            toolName: block.name,
+            toolId: block.id,
+            rawResult: JSON.stringify(toolResult).substring(0, 200) + '...',
+            formattedResult: formattedResult.text ? formattedResult.text.substring(0, 200) + '...' : 'No formatted text'
           });
 
           // Create a new message for the tool result

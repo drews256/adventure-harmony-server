@@ -225,6 +225,21 @@ async function processJob(job: ConversationJob) {
             tool_results: job.tool_results.concat(toolCall as unknown as Record<string, unknown>)
           });
           
+          // Log the message context when running the tool
+          console.log('Current message context before tool execution:', {
+            messagesCount: job.conversation_history.length,
+            latestMessages: job.conversation_history.slice(-2).map((m: any) => ({
+              role: m.role,
+              contentType: typeof m.content === 'string' ? 'text' : 'array',
+              contentPreview: typeof m.content === 'string' 
+                ? m.content.substring(0, 100) + '...' 
+                : JSON.stringify(m.content).substring(0, 100) + '...'
+            })),
+            toolName: block.name,
+            toolId: block.id,
+            toolInput: block.input
+          });
+                    
           // Execute tool call with caching
           const toolResult = await cachedToolCall(
             block.name,
@@ -239,6 +254,14 @@ async function processJob(job: ConversationJob) {
           
           // Format response for better user experience
           const formattedResult = formatToolResponse(block.name, toolResult);
+          
+          // Log detailed information about tool results
+          console.log('Tool execution completed with results:', { 
+            toolName: block.name,
+            toolId: block.id,
+            rawResult: JSON.stringify(toolResult).substring(0, 200) + '...',
+            formattedResult: formattedResult.text ? formattedResult.text.substring(0, 200) + '...' : 'No formatted text'
+          });
           
           // Send immediate tool result via SMS if appropriate
           if (formattedResult.text) {
