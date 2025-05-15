@@ -54,6 +54,60 @@ async function updateJobStatus(
   if (error) throw error;
 }
 
+// Removes tool details from conversation history to reduce context size
+function cleanConversationHistory(messages: any[]): any[] {
+  return messages.map(message => {
+    // For string content, just keep as is
+    if (typeof message.content === 'string') {
+      return message;
+    }
+    
+    // For array content (typically containing tool_use and tool_result blocks)
+    if (Array.isArray(message.content)) {
+      // Clean up the content array
+      const cleanedContent = message.content.map((block: any) => {
+        // Keep text blocks unchanged
+        if (block.type === 'text') {
+          return block;
+        }
+        
+        // For tool use blocks, keep essential fields only
+        if (block.type === 'tool_use') {
+          return {
+            type: 'tool_use',
+            id: block.id,
+            name: block.name,
+            // Omit detailed 'input' which can be large
+          };
+        }
+        
+        // For tool result blocks, simplify content
+        if (block.type === 'tool_result') {
+          return {
+            type: 'tool_result',
+            tool_use_id: block.tool_use_id,
+            // Replace content with a placeholder
+            content: typeof block.content === 'string' && block.content.length > 100 
+              ? `[Tool result for ${block.tool_use_id}]` 
+              : block.content
+          };
+        }
+        
+        // Default - return block unchanged
+        return block;
+      });
+      
+      return {
+        ...message,
+        content: cleanedContent
+      };
+    }
+    
+    // Default case - return message unchanged
+    return message;
+  });
+}
+
 // Estimate token count for API calls
 function estimateTokenCount(messages: any[], tools: any[]): number {
   // Simple approximation: 4 chars ≈ 1 token for English text
@@ -107,9 +161,12 @@ async function processJob(job: ConversationJob) {
       input_schema: tool.inputSchema,
     }));
     
+    // Clean conversation history to reduce token usage
+    const cleanedHistory = cleanConversationHistory(job.conversation_history);
+    
     // Prepare messages for Claude API call
     const messageArray = [
-      ...job.conversation_history,
+      ...cleanedHistory,
       {
         role: 'user' as const,
         content: job.request_text
@@ -124,6 +181,8 @@ async function processJob(job: ConversationJob) {
     if (estimatedTokens > 30000) {
       console.log(`WARNING: High token count (${estimatedTokens}) may exceed limits`);
     }
+    
+    console.log('Calling Claude with cleaned conversation history');
     
     // Call Claude with current conversation state
     const response = await withRetry(
@@ -256,8 +315,8 @@ async function processJob(job: ConversationJob) {
             conversation_history: updatedConversationHistory
           });
           
-          // Prepare messages for follow-up Claude API call
-          const toolResponseMessages = updatedConversationHistory;
+          // Prepare messages for follow-up Claude API call - clean to reduce token usage
+          const toolResponseMessages = cleanConversationHistory(updatedConversationHistory);
           
           // Estimate token usage for follow-up call
           const toolResponseTokens = estimateTokenCount(toolResponseMessages, tools);
@@ -268,12 +327,19 @@ async function processJob(job: ConversationJob) {
             console.log(`WARNING: High token count (${toolResponseTokens}) in tool response call may exceed limits`);
           }
           
+          // For the follow-up call, only include the specific tool that was just used
+          // This drastically reduces context size
+          const specificTool = tools.find(tool => tool.name === block.name);
+          const toolsToUse = specificTool ? [specificTool] : tools;
+          
+          console.log(`Using ${toolsToUse.length === 1 ? 'single specific tool' : 'all tools'} for follow-up call`);
+          
           // Continue conversation with tool result
           const toolResponse = await withRetry(
             () => anthropic.messages.create({
               model: "claude-3-5-sonnet-20241022",
               max_tokens: 1000,
-              tools,
+              tools: toolsToUse,
               messages: toolResponseMessages,
             }),
             {
@@ -418,12 +484,12 @@ export async function startWorker() {
         await processJob(job);
       }
 
-      // Wait before checking for more jobs
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 30-second delay between job processing attempts
+      await new Promise(resolve => setTimeout(resolve, 30000));
     } catch (error) {
       console.error('Worker error:', error);
-      // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // 30-second delay on error before retrying
+      await new Promise(resolve => setTimeout(resolve, 30000));
     }
   }
 }

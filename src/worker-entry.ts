@@ -46,6 +46,60 @@ function logWithTimestamp(message: string, data?: any) {
   }
 }
 
+// Removes tool details from conversation history to reduce context size
+function cleanConversationHistory(messages: any[]): any[] {
+  return messages.map(message => {
+    // For string content, just keep as is
+    if (typeof message.content === 'string') {
+      return message;
+    }
+    
+    // For array content (typically containing tool_use and tool_result blocks)
+    if (Array.isArray(message.content)) {
+      // Clean up the content array
+      const cleanedContent = message.content.map((block: any) => {
+        // Keep text blocks unchanged
+        if (block.type === 'text') {
+          return block;
+        }
+        
+        // For tool use blocks, keep essential fields only
+        if (block.type === 'tool_use') {
+          return {
+            type: 'tool_use',
+            id: block.id,
+            name: block.name,
+            // Omit detailed 'input' which can be large
+          };
+        }
+        
+        // For tool result blocks, simplify content
+        if (block.type === 'tool_result') {
+          return {
+            type: 'tool_result',
+            tool_use_id: block.tool_use_id,
+            // Replace content with a placeholder
+            content: typeof block.content === 'string' && block.content.length > 100 
+              ? `[Tool result for ${block.tool_use_id}]` 
+              : block.content
+          };
+        }
+        
+        // Default - return block unchanged
+        return block;
+      });
+      
+      return {
+        ...message,
+        content: cleanedContent
+      };
+    }
+    
+    // Default case - return message unchanged
+    return message;
+  });
+}
+
 // Estimate token count for API calls
 function estimateTokenCount(messages: any[], tools: any[]): number {
   // Simple approximation: 4 chars ≈ 1 token for English text
@@ -395,7 +449,10 @@ async function processMessage(messageId: string) {
     
     logWithTimestamp(`Connected to MCP and prepared ${tools.length} relevant tools for context: ${messageContext}`);
 
-    const messageWithCurrentContent = [...messages, { role: 'user' as const, content: message.content }];
+    // Clean conversation history to reduce token usage
+    const cleanedMessages = cleanConversationHistory(messages);
+    const messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: message.content }];
+    
     const estimatedTokens = estimateTokenCount(messageWithCurrentContent, tools);
     logWithTimestamp(`Estimated token count for Claude API call: ${estimatedTokens}`);
     
@@ -404,7 +461,7 @@ async function processMessage(messageId: string) {
       logWithTimestamp(`WARNING: High token count (${estimatedTokens}) may exceed limits`);
     }
     
-    logWithTimestamp('Calling Claude with conversation history');
+    logWithTimestamp('Calling Claude with cleaned conversation history');
     // Call Claude with retry logic
     const response = await withRetry(
       () => anthropic.messages.create({
@@ -599,6 +656,20 @@ async function processMessage(messageId: string) {
               }
             });
           }
+          
+          // For the next call, only include the specific tool that was just called
+          // This drastically reduces context size when processing tool results
+          logWithTimestamp(`Filtering tools to only include ${block.name} for next API call`);
+          
+          // Find the specific tool definition
+          const specificTool = tools.find(tool => tool.name === block.name);
+          if (specificTool) {
+            // Replace the full tools list with just this one tool
+            tools = [specificTool];
+            logWithTimestamp('Successfully filtered to single tool for next API call');
+          } else {
+            logWithTimestamp('Could not find matching tool definition - using all tools');
+          }
         } catch (error) {
           console.error('Error executing tool call:', error);
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
@@ -738,12 +809,12 @@ async function workerLoop() {
         logWithTimestamp('No pending messages found, waiting...');
       }
 
-      // Small delay to prevent hammering the database
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 30-second delay between retry attempts
+      await new Promise(resolve => setTimeout(resolve, 30000));
     } catch (error) {
       logWithTimestamp('Error in worker loop:', { error });
-      // Add delay on error to prevent rapid retries
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // Add 30-second delay on error to prevent rapid retries
+      await new Promise(resolve => setTimeout(resolve, 30000));
     }
   }
 }
