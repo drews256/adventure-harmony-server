@@ -630,10 +630,14 @@ async function processMessage(messageId: string) {
     // Clean conversation history to reduce token usage
     const cleanedMessages = cleanConversationHistory(validatedMessages);
     
-    // Add instructions to reference all previous messages, even those outside the current chain
+    // Add instructions to reference all previous messages and use existing tool results
     const enhancedPrompt = `I'm reviewing our conversation history. Please reference ALL previous messages in your response, including ones that might seem to be from a separate conversation. 
 
 Don't be confused by messages that seem unrelated - I expect you to have access to my entire message history, so treat all previous messages as relevant context.
+
+IMPORTANT: Before using tools, check if you've already used similar tools in previous messages. If relevant tool results already exist in our conversation history, use that information instead of making duplicate tool calls. This will save time and provide a better experience.
+
+For example, if you see I previously asked about hiking trails and you already fetched that information, don't fetch it again - just reference the existing results and continue the conversation.
 
 Here's my current message: ${message.content}`;
     
