@@ -303,6 +303,8 @@ async function processMessage(messageId: string) {
     // Get conversation history by following parent chain with improved handling
     async function getMessageChain(currentMessageId: string, depth: number = 0, maxDepth: number = 10): Promise<any[]> {
       // Safety check to prevent infinite recursion
+      logWithTimestamp(` ------------- Fetching message chain ---------------`);
+      logWithTimestamp(`Fetching message chain for message ${currentMessageId} at depth ${depth}`);
       if (depth > 30) {
         logWithTimestamp('Warning: Reached maximum recursion depth when fetching message chain');
         return [];
