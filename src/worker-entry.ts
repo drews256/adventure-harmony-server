@@ -609,7 +609,12 @@ async function processMessage(messageId: string) {
     const cleanedMessages = cleanConversationHistory(validatedMessages);
     
     // Add instructions to reference all previous messages and use existing tool results
-    const enhancedPrompt = `I'm reviewing our conversation history. Please reference ALL previous messages in your response, including ones that might seem to be from a separate conversation. 
+    const enhancedPrompt = `
+    The primary interface you're corresponding with is through text messages. Also - don't refer to the tools by name - that's confusing. Refer to the tools using concepts that are relatable to someone running an outfitting business.  
+
+    You're corresponding with a client who is managing an outfitter, that outfitter has a website and accepts bookings (also called orders or orderlines). They present those offerings as listings in a plugin page on their websites and we accept bookings in many ways. We can create bookings through the plugin on their website, or we can create bookings through the phone, they can also create manual bookings through the website. Sometimes they create completely custom bookings that don't relate to listings too.  
+
+    I'm reviewing our conversation history. Please reference ALL previous messages in your response, including ones that might seem to be from a separate conversation. 
 
 Don't be confused by messages that seem unrelated - I expect you to have access to my entire message history, so treat all previous messages as relevant context.
 
