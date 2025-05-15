@@ -253,10 +253,10 @@ async function processMessage(messageId: string) {
         }
       }
       
-      // If we have stored history and we're at the first level, use it
+      // We want to build conversation history from database messages, not use stored history
+      // Even if we have stored history, we'll prioritize building from the database
       if (storedHistory.length > 0 && depth === 0) {
-        logWithTimestamp('Using stored conversation history');
-        return messages || [];
+        logWithTimestamp('Found stored conversation history, but will use database history instead');
       }
       
       // If we have a parent and haven't reached max depth, get parent chain
@@ -284,22 +284,44 @@ async function processMessage(messageId: string) {
     const currentMessage = uniqueHistory.find(msg => msg.id === messageId);
     let conversationMessages: any[] = [];
     
+    // Check for tool_result_for to identify this as a tool result message
+    const isToolResultMessage = currentMessage?.tool_result_for !== null && 
+                               currentMessage?.tool_result_for !== undefined;
+    
+    if (isToolResultMessage) {
+      logWithTimestamp('Processing a tool result message');
+    }
+    
+    // We will log the stored history for debugging purposes but won't use it
     if (currentMessage?.conversation_history) {
       try {
-        // Try to use stored conversation history first
         const storedHistory = JSON.parse(currentMessage.conversation_history);
         if (Array.isArray(storedHistory) && storedHistory.length > 0) {
-          logWithTimestamp(`Using stored conversation history with ${storedHistory.length} messages`);
-          conversationMessages = storedHistory;
+          logWithTimestamp(`Found stored conversation history with ${storedHistory.length} messages, but will build from database instead`);
+          // Log summary of the stored history for debugging
+          logWithTimestamp('Stored conversation history summary:', {
+            messageCount: storedHistory.length,
+            firstMessageRole: storedHistory[0]?.role,
+            lastMessageRole: storedHistory[storedHistory.length - 1]?.role,
+            containsToolUse: storedHistory.some(m => 
+              Array.isArray(m.content) && 
+              m.content.some((c: any) => c.type === 'tool_use')
+            ),
+            containsToolResult: storedHistory.some(m => 
+              Array.isArray(m.content) && 
+              m.content.some((c: any) => c.type === 'tool_result')
+            )
+          });
         }
       } catch (e) {
-        logWithTimestamp('Error parsing stored conversation history, will rebuild from messages:', e);
+        logWithTimestamp('Error parsing stored conversation history:', e);
       }
     }
     
-    // If we don't have valid stored history, build it from the messages
-    if (conversationMessages.length === 0) {
-      logWithTimestamp('Building conversation history from message chain');
+    // Always rebuild conversation history from database messages
+    // (we never use stored history, even if it exists)
+    conversationMessages = [];
+    logWithTimestamp('Building conversation history from database message chain');
       
       // First, get all tool interactions to ensure they're included
       const toolInteractions = uniqueHistory.filter(msg => 
@@ -463,6 +485,20 @@ async function processMessage(messageId: string) {
     }
     
     logWithTimestamp('Calling Claude with cleaned conversation history');
+    // Log detailed information about the messages being sent
+    logWithTimestamp('Sending messages to Claude with the following history:', {
+      messageCount: messageWithCurrentContent.length,
+      lastTwoMessages: messageWithCurrentContent.slice(-2).map(m => ({
+        role: m.role,
+        contentType: typeof m.content === 'string' ? 'text' : 'array',
+        contentSummary: Array.isArray(m.content) ? 
+          m.content.map((c: any) => c.type).join(', ') : 
+          (typeof m.content === 'string' ? 
+            m.content.substring(0, 30) + '...' : 
+            'unknown content type')
+      }))
+    });
+    
     // Call Claude with retry logic
     const response = await withRetry(
       () => anthropic.messages.create({
@@ -609,6 +645,28 @@ async function processMessage(messageId: string) {
             formattedResult: formattedResult.text ? formattedResult.text.substring(0, 200) + '...' : 'No formatted text'
           });
 
+          // Update conversation history before creating the tool result message
+          
+          // Log the conversation history that will be stored with the tool result
+          logWithTimestamp('Storing conversation history with tool result:', {
+            messageCount: messages.length,
+            latestMessages: messages.slice(-2).map(m => ({
+              role: m.role,
+              contentType: typeof m.content === 'string' ? 'text' : 'array',
+              contentPreview: typeof m.content === 'string' 
+                ? m.content.substring(0, 50) + '...' 
+                : JSON.stringify(m.content).substring(0, 50) + '...'
+            })),
+            historyHasToolUse: messages.some(m => 
+              Array.isArray(m.content) && 
+              m.content.some((c: any) => c.type === 'tool_use')
+            ),
+            historyHasToolResult: messages.some(m => 
+              Array.isArray(m.content) && 
+              m.content.some((c: any) => c.type === 'tool_result')
+            )
+          });
+          
           // Create a new message for the tool result
           // Keep status as 'pending' so it can be picked up for further processing
           const { data: toolResultMessage, error: toolResultError } = await supabase
@@ -661,9 +719,21 @@ async function processMessage(messageId: string) {
             ]
           });
           
-          // Log the tool interaction for debugging
+          // Log the updated conversation history for debugging
           logWithTimestamp(`Added tool interaction to conversation history: ${block.name}`);
           logWithTimestamp(`Created tool_use with ID: ${block.id} and matching tool_result`);
+          logWithTimestamp('Updated conversation history now contains:', {
+            messageCount: messages.length,
+            lastTwoMessages: messages.slice(-2).map(m => ({
+              role: m.role,
+              contentType: typeof m.content === 'string' ? 'text' : 'array',
+              contentSummary: Array.isArray(m.content) ? 
+                m.content.map((c: any) => c.type).join(', ') : 
+                (typeof m.content === 'string' ? 
+                  m.content.substring(0, 30) + '...' : 
+                  'unknown content type')
+            }))
+          });
 
           // Send immediate tool result via SMS
           if (formattedResult.text) {

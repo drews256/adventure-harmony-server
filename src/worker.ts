@@ -162,6 +162,7 @@ async function processJob(job: ConversationJob) {
     }));
     
     // Clean conversation history to reduce token usage
+    // Note: We always use conversation history from database messages, not stored history
     const cleanedHistory = cleanConversationHistory(job.conversation_history);
     
     // Prepare messages for Claude API call
@@ -356,6 +357,20 @@ async function processJob(job: ConversationJob) {
           const toolsToUse = specificTool ? [specificTool] : tools;
           
           console.log(`Using ${toolsToUse.length === 1 ? 'single specific tool' : 'all tools'} for follow-up call`);
+          
+          // Log detailed information about the messages being sent
+          console.log('Sending messages to Claude with the following history:', {
+            messageCount: toolResponseMessages.length,
+            lastTwoMessages: toolResponseMessages.slice(-2).map((m: any) => ({
+              role: m.role,
+              contentType: typeof m.content === 'string' ? 'text' : 'array',
+              contentSummary: Array.isArray(m.content) ? 
+                m.content.map((c: any) => c.type).join(', ') : 
+                (typeof m.content === 'string' ? 
+                  m.content.substring(0, 30) + '...' : 
+                  'unknown content type')
+            }))
+          });
           
           // Continue conversation with tool result
           const toolResponse = await withRetry(
