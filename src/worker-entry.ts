@@ -46,6 +46,104 @@ function logWithTimestamp(message: string, data?: any) {
   }
 }
 
+// Validate and fix conversation history to ensure tool_use blocks are followed by tool_result blocks
+function validateAndFixConversationHistory(messages: any[]): any[] {
+  logWithTimestamp('Validating conversation history for proper tool use/result pairing');
+  
+  // Verify that tool_use and tool_result blocks are properly paired
+  const toolUsesWithoutResults: string[] = [];
+  
+  for (let i = 0; i < messages.length - 1; i++) {
+    const currentMsg = messages[i];
+    const nextMsg = messages[i + 1];
+    
+    // Check if current message has tool_use blocks
+    if (Array.isArray(currentMsg.content) && 
+        currentMsg.role === 'assistant' && 
+        currentMsg.content.some((block: any) => block.type === 'tool_use')) {
+      
+      // Find the tool_use blocks
+      const toolUseBlocks = currentMsg.content.filter((block: any) => block.type === 'tool_use');
+      
+      // Check if the next message is a user message with tool_result blocks for each tool_use
+      if (nextMsg.role !== 'user' || !Array.isArray(nextMsg.content)) {
+        toolUsesWithoutResults.push(...toolUseBlocks.map((block: any) => block.id));
+        continue;
+      }
+      
+      // Check each tool_use has a matching tool_result
+      for (const toolUseBlock of toolUseBlocks) {
+        const hasMatchingResult = Array.isArray(nextMsg.content) && 
+                                nextMsg.content.some((block: any) => 
+                                  block.type === 'tool_result' && 
+                                  block.tool_use_id === toolUseBlock.id);
+        
+        if (!hasMatchingResult) {
+          toolUsesWithoutResults.push(toolUseBlock.id);
+        }
+      }
+    }
+  }
+  
+  // If no issues found, return original messages
+  if (toolUsesWithoutResults.length === 0) {
+    logWithTimestamp('Conversation history validation successful - all tool_use blocks have matching tool_result blocks');
+    return messages;
+  }
+  
+  // Log any tool_use blocks without tool_result blocks
+  logWithTimestamp('WARNING: Found tool_use blocks without matching tool_result blocks:', {
+    toolUseIds: toolUsesWithoutResults,
+    messageCount: messages.length
+  });
+  
+  // Try to fix the conversation by ensuring every tool_use has a matching tool_result
+  logWithTimestamp('Attempting to fix conversation by adding missing tool_results');
+  
+  // Create a fixed version of the conversation
+  const fixedConversation: any[] = [];
+  
+  for (let i = 0; i < messages.length; i++) {
+    const currentMsg = messages[i];
+    fixedConversation.push(currentMsg);
+    
+    // If this is an assistant message with tool_use blocks
+    if (currentMsg.role === 'assistant' && Array.isArray(currentMsg.content)) {
+      const toolUseBlocks = currentMsg.content.filter((block: any) => block.type === 'tool_use');
+      
+      if (toolUseBlocks.length > 0) {
+        // Check if the next message (if exists) is a user message with tool_result blocks
+        const nextIsToolResult = i < messages.length - 1 && 
+                                messages[i + 1].role === 'user' && 
+                                Array.isArray(messages[i + 1].content) &&
+                                messages[i + 1].content.some((block: any) => block.type === 'tool_result');
+        
+        // If next message is not a tool_result, insert one
+        if (!nextIsToolResult) {
+          const toolResultsContent = toolUseBlocks.map((toolUse: any) => ({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+          }));
+          
+          fixedConversation.push({
+            role: 'user' as const,
+            content: toolResultsContent
+          });
+          
+          logWithTimestamp('Added synthetic tool_result for missing tool_use responses', {
+            toolUseIds: toolUseBlocks.map((block: any) => block.id)
+          });
+        }
+      }
+    }
+  }
+  
+  // Return the fixed conversation
+  logWithTimestamp(`Fixed conversation history has ${fixedConversation.length} messages (was ${messages.length})`);
+  return fixedConversation;
+}
+
 // Removes tool details from conversation history to reduce context size
 function cleanConversationHistory(messages: any[]): any[] {
   return messages.map(message => {
@@ -366,13 +464,69 @@ async function processMessage(messageId: string) {
       toolResultMessages: allMessages.filter(msg => msg.tool_result_for).length
     });
     
-    // First, process regular messages
-    for (let i = 0; i < allMessages.length; i++) {
-      const msg = allMessages[i];
+    // First, we'll collect the tool calls and their results in a structured way
+    const toolCallMap = new Map();
+    
+    // Find all tool calls first
+    for (const msg of allMessages) {
+      if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        for (const toolCall of msg.tool_calls) {
+          toolCallMap.set(toolCall.id, {
+            toolCall,
+            message: msg,
+            result: null
+          });
+        }
+      }
+    }
+    
+    // Match tool results to their corresponding tool calls
+    for (const msg of allMessages) {
+      if (msg.tool_result_for && toolCallMap.has(msg.tool_result_for)) {
+        const entry = toolCallMap.get(msg.tool_result_for);
+        entry.result = msg;
+      }
+    }
+    
+    // Also check for parent-child relationships for tool results
+    for (const msg of allMessages) {
+      if (msg.parent_message_id) {
+        const parentMsg = allMessages.find(m => m.id === msg.parent_message_id);
+        if (parentMsg && parentMsg.tool_calls && Array.isArray(parentMsg.tool_calls) && parentMsg.tool_calls.length > 0) {
+          // This might be a tool result for a parent with tool calls
+          // If we don't already have a result, use this one
+          for (const toolCall of parentMsg.tool_calls) {
+            if (toolCallMap.has(toolCall.id)) {
+              const entry = toolCallMap.get(toolCall.id);
+              if (!entry.result && msg.direction === 'outgoing') {
+                entry.result = msg;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Now build the conversation in proper order with regular messages first
+    // First, process regular messages that are not tool calls or results
+    for (const msg of allMessages) {
       const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
       
-      // Skip tool-related messages - we'll handle them specially
-      if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+      // Skip tool-related messages - we'll handle them separately
+      if ((msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) ||
+          (msg.tool_result_for)) {
+        continue;
+      }
+      
+      // Skip messages that are likely tool results (based on parent relationship to tool call messages)
+      const isToolResult = msg.parent_message_id && 
+                          allMessages.some(m => 
+                            m.id === msg.parent_message_id && 
+                            m.tool_calls && 
+                            Array.isArray(m.tool_calls) && 
+                            m.tool_calls.length > 0);
+      
+      if (isToolResult) {
         continue;
       }
       
@@ -383,60 +537,170 @@ async function processMessage(messageId: string) {
       });
     }
     
-    // Then, process tool calls and their results separately to ensure proper pairing
-    for (const msg of allMessages) {
-      // Only process messages with tool calls
-      if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-        // For each tool call in the message
-        for (const toolCall of msg.tool_calls) {
-          // Find the corresponding tool result message - either by tool_result_for field or parent relationship
-          const resultMsg = allMessages.find(m => 
-            (m.tool_result_for === toolCall.id) || // First try to match by tool result ID
-            (m.parent_message_id === msg.id && 
-            m.direction === 'outgoing' &&
-            (!m.tool_calls || m.tool_calls.length === 0)) // Not another tool call
-          );
-          
-          if (resultMsg) {
-            logWithTimestamp(`Found matching tool result message for tool call ${toolCall.id}`);
-          } else {
-            logWithTimestamp(`Warning: Could not find matching tool result for tool call ${toolCall.id}`, {
-              toolCall: toolCall.name,
-              messageId: msg.id,
-              resultMessages: allMessages
-                .filter(m => m.parent_message_id === msg.id)
-                .map(m => ({ id: m.id, direction: m.direction, hasToolCalls: m.tool_calls && m.tool_calls.length > 0 }))
-            });
+    // Now add tool interactions in proper sequential pairs
+    logWithTimestamp(`Processing ${toolCallMap.size} tool calls with their results`);
+    
+    // Convert the map to array and sort by message creation time to preserve chronological order
+    const allToolInteractions = Array.from(toolCallMap.values())
+      .sort((a, b) => {
+        const aTime = new Date(a.message.created_at).getTime();
+        const bTime = new Date(b.message.created_at).getTime();
+        return aTime - bTime;
+      });
+    
+    for (const interaction of allToolInteractions) {
+      const { toolCall, message, result } = interaction;
+      
+      // Log the tool interaction we're processing
+      logWithTimestamp(`Processing tool interaction: ${toolCall.id}`, {
+        toolName: toolCall.name,
+        hasResult: !!result,
+        resultContent: result ? result.content.substring(0, 50) + '...' : 'No result found'
+      });
+      
+      // 1. First add the assistant message with tool_use
+      conversationMessages.push({
+        role: 'assistant' as const,
+        content: [
+          { type: 'text', text: typeof message.content === 'string' ? message.content : 'Using tool:' },
+          { 
+            type: 'tool_use',
+            id: toolCall.id,
+            name: toolCall.name,
+            input: toolCall.input || toolCall.arguments || {} // Ensure input is always present
           }
-          
-          // Add the tool_use message (always from assistant)
-          conversationMessages.push({
-            role: 'assistant' as const,
-            content: [
-              { type: 'text', text: typeof msg.content === 'string' ? msg.content : 'Using tool:' },
-              { 
-                type: 'tool_use',
-                id: toolCall.id,
-                name: toolCall.name,
-                input: toolCall.input || toolCall.arguments || {} // Ensure input is always present
-              }
-            ]
-          });
-          
-          // Add the tool_result message (always from user)
-          conversationMessages.push({
-            role: 'user' as const,
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: toolCall.id,
-                content: resultMsg && typeof resultMsg.content === 'string' 
-                  ? resultMsg.content 
-                  : JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
-              }
-            ]
-          });
+        ]
+      });
+      
+      // 2. IMMEDIATELY add the user message with tool_result (required by Claude API)
+      conversationMessages.push({
+        role: 'user' as const,
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolCall.id,
+            content: result && typeof result.content === 'string' 
+              ? result.content 
+              : JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+          }
+        ]
+      });
+    }
+    
+    // Verify that tool_use and tool_result blocks are properly paired
+    let toolUsesWithoutResults = [];
+    
+    for (let i = 0; i < conversationMessages.length - 1; i++) {
+      const currentMsg = conversationMessages[i];
+      const nextMsg = conversationMessages[i + 1];
+      
+      // Check if current message has tool_use blocks
+      if (Array.isArray(currentMsg.content) && 
+          currentMsg.role === 'assistant' && 
+          currentMsg.content.some((block: any) => block.type === 'tool_use')) {
+        
+        // Find the tool_use blocks
+        const toolUseBlocks = currentMsg.content.filter((block: any) => block.type === 'tool_use');
+        
+        // Check if the next message is a user message with tool_result blocks for each tool_use
+        if (nextMsg.role !== 'user' || !Array.isArray(nextMsg.content)) {
+          toolUsesWithoutResults.push(...toolUseBlocks.map((block: any) => block.id));
+          continue;
         }
+        
+        // Check each tool_use has a matching tool_result
+        for (const toolUseBlock of toolUseBlocks) {
+          const hasMatchingResult = Array.isArray(nextMsg.content) && 
+                                   nextMsg.content.some((block: any) => 
+                                     block.type === 'tool_result' && 
+                                     block.tool_use_id === toolUseBlock.id);
+          
+          if (!hasMatchingResult) {
+            toolUsesWithoutResults.push(toolUseBlock.id);
+          }
+        }
+      }
+    }
+    
+    // Log any tool_use blocks without tool_result blocks
+    if (toolUsesWithoutResults.length > 0) {
+      logWithTimestamp('WARNING: Found tool_use blocks without matching tool_result blocks:', {
+        toolUseIds: toolUsesWithoutResults,
+        messageCount: conversationMessages.length
+      });
+      
+      // Try to fix the conversation by ensuring every tool_use has a matching tool_result
+      logWithTimestamp('Attempting to fix conversation by adding missing tool_results');
+      
+      // Create a fixed version of the conversation
+      const fixedConversation = [];
+      
+      for (let i = 0; i < conversationMessages.length; i++) {
+        const currentMsg = conversationMessages[i];
+        fixedConversation.push(currentMsg);
+        
+        // If this is an assistant message with tool_use blocks
+        if (currentMsg.role === 'assistant' && Array.isArray(currentMsg.content)) {
+          const toolUseBlocks = currentMsg.content.filter((block: any) => block.type === 'tool_use');
+          
+          if (toolUseBlocks.length > 0) {
+            // Check if the next message (if exists) is a user message with tool_result blocks
+            const nextIsToolResult = i < conversationMessages.length - 1 && 
+                                    conversationMessages[i + 1].role === 'user' && 
+                                    Array.isArray(conversationMessages[i + 1].content) &&
+                                    conversationMessages[i + 1].content.some((block: any) => block.type === 'tool_result');
+            
+            // If next message is not a tool_result, insert one
+            if (!nextIsToolResult) {
+              const toolResultsContent = toolUseBlocks.map((toolUse: any) => ({
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+              }));
+              
+              fixedConversation.push({
+                role: 'user' as const,
+                content: toolResultsContent
+              });
+              
+              logWithTimestamp('Added synthetic tool_result for missing tool_use responses', {
+                toolUseIds: toolUseBlocks.map((block: any) => block.id)
+              });
+            }
+          }
+        }
+      }
+      
+      // Replace the conversation with the fixed version
+      conversationMessages = fixedConversation;
+    }
+    
+    // Final validation - log the structure of the conversation with tool use/result pairs
+    let lastToolUseIds: string[] = [];
+    logWithTimestamp('Final conversation structure:');
+    for (let i = 0; i < conversationMessages.length; i++) {
+      const msg = conversationMessages[i];
+      
+      if (Array.isArray(msg.content)) {
+        const toolUses = msg.content
+          .filter((block: any) => block.type === 'tool_use')
+          .map((block: any) => block.id);
+          
+        const toolResults = msg.content
+          .filter((block: any) => block.type === 'tool_result')
+          .map((block: any) => block.tool_use_id);
+          
+        if (toolUses.length > 0) {
+          lastToolUseIds = toolUses;
+          logWithTimestamp(`Message ${i}: ${msg.role} with tool_use: ${toolUses.join(', ')}`);
+        } else if (toolResults.length > 0) {
+          // Check if each tool_result matches a previous tool_use
+          const allMatch = toolResults.every((id: string) => lastToolUseIds.includes(id));
+          logWithTimestamp(`Message ${i}: ${msg.role} with tool_result: ${toolResults.join(', ')} ${allMatch ? '✓' : '❌'}`);
+          lastToolUseIds = [];
+        }
+      } else {
+        logWithTimestamp(`Message ${i}: ${msg.role} with text content`);
       }
     }
     
@@ -511,8 +775,11 @@ async function processMessage(messageId: string) {
     
     logWithTimestamp(`Connected to MCP and prepared ${tools.length} relevant tools for context: ${messageContext}`);
 
+    // Validate and fix conversation history before cleaning
+    const validatedMessages = validateAndFixConversationHistory(messages);
+    
     // Clean conversation history to reduce token usage
-    const cleanedMessages = cleanConversationHistory(messages);
+    const cleanedMessages = cleanConversationHistory(validatedMessages);
     const messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: message.content }];
     
     const estimatedTokens = estimateTokenCount(messageWithCurrentContent, tools);
@@ -778,8 +1045,11 @@ async function processMessage(messageId: string) {
           // Claude requires a specific format - tool_use blocks in assistant messages
           // must be followed immediately by tool_result blocks in user messages with matching IDs
           
+          // Create an array to hold the new messages
+          const messagesBeforeToolAddition = [...messages];
+          
           // First, add the assistant message with the tool_use block
-          messages.push({
+          const assistantMessage = {
             role: 'assistant' as const,
             content: [
               { type: 'text', text: finalResponse || 'Using tool:' },
@@ -790,10 +1060,10 @@ async function processMessage(messageId: string) {
                 input: block.input || block.arguments || {} // Ensure input is always present
               }
             ]
-          });
+          };
           
-          // Then immediately add the user message with the tool_result block
-          messages.push({
+          // Create the user message with the tool_result block
+          const userMessage = {
             role: 'user' as const,
             content: [
               {
@@ -804,6 +1074,19 @@ async function processMessage(messageId: string) {
                   : JSON.stringify(toolResult)
               }
             ]
+          };
+          
+          // Add the new messages to the array
+          messages.push(assistantMessage);
+          messages.push(userMessage);
+          
+          // Log to verify proper sequential addition
+          logWithTimestamp('Added tool use/result pair to conversation history:', {
+            toolId: block.id,
+            toolName: block.name,
+            previousMessageCount: messagesBeforeToolAddition.length,
+            newMessageCount: messages.length,
+            lastMessages: messages.slice(-2).map(m => m.role)
           });
           
           // Log the updated conversation history for debugging
