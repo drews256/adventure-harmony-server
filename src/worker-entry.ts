@@ -450,18 +450,75 @@ async function processMessage(messageId: string) {
         });
         
         try {
-          // Execute tool call with caching
-          logWithTimestamp(`Executing tool: ${block.name}`);
-          const toolResult = await cachedToolCall(
-            block.name,
-            block.input as Record<string, unknown>,
-            () => mcp.callTool({
-              id: block.id,
-              name: block.name,
-              arguments: block.input as Record<string, unknown>,
-              tool_result: []
-            })
-          );
+          // Execute tool call with caching and better error handling
+          logWithTimestamp(`Executing tool: ${block.name} with ID: ${block.id}`);
+          
+          let toolResult;
+          try {
+            toolResult = await cachedToolCall(
+              block.name,
+              block.input as Record<string, unknown>,
+              () => mcp.callTool({
+                id: block.id,
+                name: block.name,
+                arguments: block.input as Record<string, unknown>,
+                tool_result: []
+              })
+            );
+          } catch (toolError) {
+            // Handle MCP "Tool not found" errors - typically when tool IDs don't match
+            if (toolError.message && toolError.message.includes('Tool') && toolError.message.includes('not found')) {
+              logWithTimestamp(`Tool ID error - attempting to find correct tool ID for: ${block.name}`);
+              
+              try {
+                // Get available tools from MCP server
+                const availableTools = await goGuideClient.getTools();
+                
+                // Find matching tool by name
+                const matchingTool = availableTools.find(tool => 
+                  tool.name.toLowerCase() === block.name.toLowerCase() || 
+                  tool.name.replace(/\s+/g, '') === block.name.replace(/\s+/g, '')
+                );
+                
+                if (matchingTool) {
+                  logWithTimestamp(`Found matching tool with ID: ${matchingTool.id || 'unknown'}`);
+                  
+                  toolResult = await cachedToolCall(
+                    block.name,
+                    block.input as Record<string, unknown>,
+                    () => mcp.callTool({
+                      // Use the correct tool ID from the server
+                      id: matchingTool.id || block.name,
+                      name: matchingTool.name, // Use the exact name from the server
+                      arguments: block.input as Record<string, unknown>,
+                      tool_result: []
+                    })
+                  );
+                } else {
+                  // No matching tool found, try with a generated ID
+                  const fallbackId = `${block.name.replace(/\s+/g, '_')}_${Date.now()}`;
+                  logWithTimestamp(`No matching tool found, using fallback ID: ${fallbackId}`);
+                  
+                  toolResult = await cachedToolCall(
+                    block.name,
+                    block.input as Record<string, unknown>,
+                    () => mcp.callTool({
+                      id: fallbackId,
+                      name: block.name,
+                      arguments: block.input as Record<string, unknown>,
+                      tool_result: []
+                    })
+                  );
+                }
+              } catch (retryError) {
+                logWithTimestamp(`Retry also failed: ${retryError.message}`);
+                throw retryError;
+              }
+            } else {
+              // Rethrow other errors
+              throw toolError;
+            }
+          }
           
           // Format the tool result for better user experience
           const formattedResult = formatToolResponse(block.name, toolResult);
@@ -574,9 +631,28 @@ async function processMessage(messageId: string) {
         status: 'completed'
       });
 
+    // Check for any existing unprocessed tool result messages related to this message
+    async function checkPendingToolResults(originalMessageId: string): Promise<boolean> {
+      const { data: pendingResults, error } = await supabase
+        .from('conversation_messages')
+        .select('id, status')
+        .eq('parent_message_id', originalMessageId)
+        .eq('status', 'pending')
+        .not('tool_result_for', 'is', null);
+      
+      if (error) {
+        logWithTimestamp('Error checking pending tool results:', { error });
+        return false;
+      }
+      
+      return (pendingResults && pendingResults.length > 0);
+    }
+    
+    const hasPendingToolResults = await checkPendingToolResults(messageId);
+    
     // Only mark the original message as completed if no tool calls were made
-    // This allows tool result messages to be processed in subsequent worker iterations
-    if (toolCalls.length === 0) {
+    // and no tool results are pending
+    if (toolCalls.length === 0 && !hasPendingToolResults) {
       await supabase
         .from('conversation_messages')
         .update({ status: 'completed' })
@@ -592,7 +668,13 @@ async function processMessage(messageId: string) {
           tool_calls: toolCalls
         })
         .eq('id', messageId);
-      logWithTimestamp('Keeping original message in processing state - tool calls were made');
+      
+      if (toolCalls.length > 0) {
+        logWithTimestamp('Keeping original message in processing state - tool calls were made');
+      }
+      if (hasPendingToolResults) {
+        logWithTimestamp('Keeping original message in processing state - pending tool results exist');
+      }
     }
 
     // Send response via SMS
