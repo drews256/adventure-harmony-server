@@ -197,10 +197,10 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
     console.log(`Tool name: ${toolName}, Tool description: ${toolDesc}`);
     
     // Check if the tool name or description contains "orderline" or "token"
-    return toolName.includes('orderline') || 
-           toolName.includes('order line') ||
-           toolDesc.includes('orderline') ||
-           toolDesc.includes('order line') ||
+           toolName.includes('order') ||
+           toolDesc.includes('order') ||
+           toolName.includes('search') ||
+           toolDesc.includes('search') ||
            toolName.includes('token') ||
            toolDesc.includes('token');
   });
