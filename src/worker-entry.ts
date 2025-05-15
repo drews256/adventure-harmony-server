@@ -468,44 +468,24 @@ async function processMessage(messageId: string) {
       }
     }
     
-    // Now build the conversation in proper order with regular messages first
-    // First, process regular messages that are not tool calls or results
-    // Keep track of user (incoming) messages for debugging
-    let incomingMessagesCount = 0;
-    
+    // Simple approach: first add all text messages (non-tool messages)
+    // For each message, check if it's a regular text message (not a tool call/result)
     for (const msg of allMessages) {
-      const role: 'user' | 'assistant' = msg.direction === 'incoming' ? 'user' : 'assistant';
-      
-      // Count incoming messages
-      if (msg.direction === 'incoming') {
-        incomingMessagesCount++;
-      }
-      
-      // Skip tool-related messages - we'll handle them separately
+      // Skip if this is a tool call or tool result message - we'll handle those separately
       if ((msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) ||
           (msg.tool_result_for)) {
         continue;
       }
       
-      // Skip messages that are likely tool results (based on parent relationship to tool call messages)
-      // BUT make sure we don't skip incoming user messages - those should always be included
+      // Add all regular text messages (both user and assistant)
+      const role = msg.direction === 'incoming' ? 'user' : 'assistant';
+      
+      // Simple log for debugging
       if (msg.direction === 'incoming') {
-        // Always include incoming user messages
-        logWithTimestamp(`Including incoming user message: ${msg.id.substring(0, 8)}... "${msg.content.substring(0, 30)}..."`);
-      } else {
-        const isToolResult = msg.parent_message_id && 
-                            allMessages.some(m => 
-                              m.id === msg.parent_message_id && 
-                              m.tool_calls && 
-                              Array.isArray(m.tool_calls) && 
-                              m.tool_calls.length > 0);
-        
-        if (isToolResult) {
-          continue;
-        }
+        console.log(`ADDING USER MESSAGE: ${msg.content.substring(0, 50)}...`);
       }
       
-      // Add regular message
+      // Add the message
       conversationMessages.push({
         role,
         content: msg.content
@@ -673,7 +653,37 @@ async function processMessage(messageId: string) {
       new Map(conversationMessages.map((msg, index) => [JSON.stringify(msg), msg])).values()
     );
 
-    // Log summary statistics about conversation messages
+    // Double-check: Ensure all incoming messages are included
+    // Get all incoming messages from the original data
+    const allIncomingMessages = allMessages.filter(msg => msg.direction === 'incoming');
+    
+    // Find which incoming messages made it to the final conversation
+    const includedIncomingMessageIds = conversationMessages
+      .filter(msg => msg.role === 'user' && typeof msg.content === 'string')
+      .map(msg => JSON.stringify(msg.content));
+    
+    // Find any missing incoming messages
+    const missingIncomingMessages = allIncomingMessages.filter(msg => 
+      !includedIncomingMessageIds.includes(JSON.stringify(msg.content))
+    );
+    
+    // If we found any missing incoming messages, add them now
+    if (missingIncomingMessages.length > 0) {
+      console.log(`FOUND ${missingIncomingMessages.length} MISSING USER MESSAGES - ADDING THEM NOW`);
+      
+      for (const msg of missingIncomingMessages) {
+        conversationMessages.push({
+          role: 'user',
+          content: msg.content
+        });
+        console.log(`Added missing user message: ${msg.content.substring(0, 50)}...`);
+      }
+    }
+    
+    // Count incoming messages in the original data
+    const incomingCount = allIncomingMessages.length;
+    
+    // Count how many of each type made it into the final conversation
     const userTextMsgCount = conversationMessages.filter(msg => msg.role === 'user' && typeof msg.content === 'string').length;
     const assistantTextMsgCount = conversationMessages.filter(msg => msg.role === 'assistant' && typeof msg.content === 'string').length;
     const toolUseMsgCount = conversationMessages.filter(msg => 
@@ -685,14 +695,14 @@ async function processMessage(messageId: string) {
       msg.content.some((block: any) => block.type === 'tool_result')
     ).length;
     
-    logWithTimestamp('Message statistics:', {
-      totalIncomingMessages: incomingMessagesCount,
-      totalConversationMessages: conversationMessages.length,
-      userTextMessages: userTextMsgCount,
-      assistantTextMessages: assistantTextMsgCount,
-      toolUseMessages: toolUseMsgCount,
-      toolResultMessages: toolResultMsgCount
-    });
+    console.log('=====================================');
+    console.log('MESSAGE COUNTS:');
+    console.log(`Total incoming (user) messages in data: ${incomingCount}`);
+    console.log(`User text messages in final context: ${userTextMsgCount}`);
+    console.log(`Assistant text messages in final context: ${assistantTextMsgCount}`);
+    console.log(`Tool use messages in final context: ${toolUseMsgCount}`);
+    console.log(`Tool result messages in final context: ${toolResultMsgCount}`);
+    console.log('=====================================');
 
     console.log('----------- conversation messages ---------------')
     conversationMessages.map(m => console.log(JSON.stringify(m)))
