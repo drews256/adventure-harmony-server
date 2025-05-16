@@ -227,6 +227,8 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
     // Check if the tool name or description contains "orderline" or "token"
            return toolName.includes('order') ||
            toolDesc.includes('order') ||
+           toolName.includes('supplier') ||
+           toolDesc.includes('supplier') ||
            toolName.includes('search') ||
            toolDesc.includes('search') ||
            toolName.includes('token') ||

@@ -3,6 +3,8 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { Anthropic } from '@anthropic-ai/sdk';
+import { formatToolResponse } from './services/response-formatter';
 
 /**
  * Filters tool schemas to include only necessary parameters
@@ -225,6 +227,10 @@ export function buildConversationHistoryWithTools(messages: any[]) {
   return uniqueMessages;
 }
 
+// Import the formatToolResponse function at the top of the file
+import { formatToolResponse } from './services/response-formatter';
+import { Anthropic } from '@anthropic-ai/sdk';
+
 // Function to extract and process tool calls from Claude's response
 export async function processToolCallsFromClaude(responseContent: any[], 
                                                 supabase: any, 
@@ -250,6 +256,15 @@ export async function processToolCallsFromClaude(responseContent: any[],
   // 2. Process tool_use blocks
   const toolUseBlocks = responseContent.filter(block => block.type === 'tool_use');
   
+  // Only for tools, track both raw results (for Claude) and formatted results (for SMS)
+  const toolResults: {
+    id: string;
+    name: string;
+    result: any;
+    formattedText: string;
+    resultContent: string;
+  }[] = [];
+  
   // Execute each tool call
   for (const block of toolUseBlocks) {
     // Add to the list of tool calls
@@ -268,6 +283,18 @@ export async function processToolCallsFromClaude(responseContent: any[],
       const resultContent = typeof toolResult === 'string' 
         ? toolResult 
         : JSON.stringify(toolResult);
+      
+      // Create user-friendly formatted version of the tool result for SMS
+      const formattedResult = formatToolResponse(block.name, toolResult);
+      
+      // Store both raw and formatted versions
+      toolResults.push({
+        id: block.id,
+        name: block.name,
+        result: toolResult,
+        formattedText: formattedResult.text,
+        resultContent
+      });
       
       // Store the tool result in the database
       const { data: toolResultMessage, error: toolResultError } = await supabase
@@ -329,8 +356,95 @@ export async function processToolCallsFromClaude(responseContent: any[],
     }
   }
   
-  // Add the final text response to the history
-  if (finalResponse.trim()) {
+  // 3. If tools were used, make a follow-up call to Claude with the tool results
+  if (toolResults.length > 0) {
+    try {
+      console.log('Making follow-up call to Claude with tool results');
+      
+      // Create the anthropic client
+      const anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY || '',
+      });
+      
+      // Build follow-up messages for Claude
+      // Note: We're using the conversation history we've already built
+      const followUpMessages = [];
+      
+      // Add assistant message with initial response and tool use
+      const initialToolUseBlocks = [{ type: 'text', text: finalResponse }];
+      toolUseBlocks.forEach(block => {
+        initialToolUseBlocks.push({
+          type: 'tool_use',
+          id: block.id,
+          name: block.name,
+          input: block.input || {}
+        });
+      });
+      
+      followUpMessages.push({
+        role: 'assistant',
+        content: initialToolUseBlocks
+      });
+      
+      // Add user message with tool results
+      const toolResultBlocks = toolResults.map(tr => ({
+        type: 'tool_result',
+        tool_use_id: tr.id,
+        content: tr.resultContent
+      }));
+      
+      followUpMessages.push({
+        role: 'user',
+        content: toolResultBlocks
+      });
+      
+      // Call Claude with follow-up
+      const followUpResponse = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 1000,
+        temperature: 0.7,
+        messages: [
+          ...followUpMessages,  // Include only the most recent messages
+          // Prompt Claude to summarize the tool results
+          {
+            role: 'user',
+            content: "Please analyze these tool results and give me a brief summary of what you found. Keep your response concise as it will be sent via SMS."
+          }
+        ]
+      });
+      
+      // Extract text from follow-up response
+      const followUpText = followUpResponse.content
+        .filter((block: any) => block.type === 'text')
+        .map((block: any) => block.text)
+        .join('\n');
+      
+      console.log('Follow-up response:', followUpText);
+      
+      // Combine original response with follow-up
+      // Only update finalResponse for SMS, not for the conversation history
+      finalResponse = `${finalResponse}\n\n${followUpText}`;
+      
+      // Add the follow-up response to messages
+      messages.push({
+        role: 'assistant',
+        content: followUpText
+      });
+      
+    } catch (error) {
+      console.error('Error in follow-up Claude call:', error);
+      
+      // If follow-up fails, append formatted tool results directly
+      const formattedToolResults = toolResults.map(tr => tr.formattedText).join('\n\n');
+      finalResponse += `\n\nHere's what I found:\n${formattedToolResults}`;
+    }
+  }
+  
+  // Add the final text response to the history if not already added
+  if (finalResponse.trim() && !messages.some(msg => 
+    msg.role === 'assistant' && 
+    !Array.isArray(msg.content) && 
+    typeof msg.content === 'string')) {
     messages.push({
       role: 'assistant',
       content: finalResponse
