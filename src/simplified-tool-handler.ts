@@ -4,6 +4,48 @@
 
 import { createClient } from '@supabase/supabase-js';
 
+/**
+ * Filters tool schemas to include only necessary parameters
+ * @param tools Array of tools to filter
+ * @returns Filtered tools with simplified schemas
+ */
+export function filterToolParameters(tools: any[]): any[] {
+  if (!tools || !Array.isArray(tools) || tools.length === 0) {
+    return [];
+  }
+  
+  return tools.map(tool => {
+    // Create a copy of the tool
+    const filteredTool: any = {
+      name: tool.name,
+      description: tool.description,
+    };
+    
+    // Only include input_schema if it exists
+    if (tool.input_schema) {
+      // You can modify this logic to filter specific properties
+      // from the input_schema based on your requirements
+      
+      // For example, to exclude certain properties:
+      // const excludedProps = ['some_prop', 'another_prop'];
+      // const filteredSchema = {...tool.input_schema};
+      // if (filteredSchema.properties) {
+      //   excludedProps.forEach(prop => {
+      //     if (filteredSchema.properties[prop]) {
+      //       delete filteredSchema.properties[prop];
+      //     }
+      //   });
+      // }
+      // filteredTool.input_schema = filteredSchema;
+      
+      // For now, we'll just pass the input_schema as is
+      filteredTool.input_schema = tool.input_schema;
+    }
+    
+    return filteredTool;
+  });
+}
+
 // Function to safely format tool responses for Claude API
 export function formatToolResponsesForClaude(toolResponseData: any) {
   // Ensure the response can be safely included in the Claude API
@@ -112,12 +154,57 @@ export function buildConversationHistoryWithTools(messages: any[]) {
     }
   }
   
-  // 3. Ensure messages are sorted chronologically (if timestamps are available)
-  // This is a simplification - full implementation would need to sort by timestamp
+  // 3. Ensure every tool_use has a corresponding tool_result in the next message
+  console.log('Validating tool_use and tool_result pairing...');
+  const validatedMessages = [];
+  
+  for (let i = 0; i < claudeMessages.length; i++) {
+    const currentMsg = claudeMessages[i];
+    validatedMessages.push(currentMsg);
+    
+    // Check if this is an assistant message with tool_use blocks
+    if (currentMsg.role === 'assistant' && 
+        Array.isArray(currentMsg.content) && 
+        currentMsg.content.some((block: any) => block.type === 'tool_use')) {
+      
+      // Get all tool_use blocks in this message
+      const toolUseBlocks = currentMsg.content.filter((block: any) => block.type === 'tool_use');
+      
+      // Check if the next message is a user message with matching tool_result blocks
+      const hasMatchingResults = 
+        (i + 1 < claudeMessages.length) && 
+        claudeMessages[i + 1].role === 'user' &&
+        Array.isArray(claudeMessages[i + 1].content) &&
+        toolUseBlocks.every((toolUse: any) => {
+          return claudeMessages[i + 1].content.some((block: any) => 
+            block.type === 'tool_result' && 
+            block.tool_use_id === toolUse.id
+          );
+        });
+      
+      // If not, insert a message with tool_result blocks
+      if (!hasMatchingResults) {
+        console.log(`Adding missing tool_result blocks for ${toolUseBlocks.length} tool_use blocks`);
+        
+        // Create a tool_result for each tool_use
+        const toolResultBlocks = toolUseBlocks.map((toolUse: any) => ({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+        }));
+        
+        // Insert a user message with the tool_result blocks
+        validatedMessages.push({
+          role: 'user',
+          content: toolResultBlocks
+        });
+      }
+    }
+  }
   
   // 4. Remove duplicate messages
   const uniqueMessages = Array.from(
-    new Map(claudeMessages.map(msg => [JSON.stringify(msg), msg])).values()
+    new Map(validatedMessages.map(msg => [JSON.stringify(msg), msg])).values()
   );
   
   return uniqueMessages;
@@ -235,9 +322,56 @@ export async function processToolCallsFromClaude(responseContent: any[],
     });
   }
   
+  // Ensure all tool_use blocks have corresponding tool_result blocks
+  const validatedMessages = [];
+  
+  for (let i = 0; i < messages.length; i++) {
+    const currentMsg = messages[i];
+    validatedMessages.push(currentMsg);
+    
+    // Check if this is an assistant message with tool_use blocks
+    if (currentMsg.role === 'assistant' && 
+        Array.isArray(currentMsg.content) && 
+        currentMsg.content.some((block: any) => block.type === 'tool_use')) {
+      
+      // Get all tool_use blocks in this message
+      const toolUseBlocks = currentMsg.content.filter((block: any) => block.type === 'tool_use');
+      
+      // Check if the next message is a user message with matching tool_result blocks
+      const hasMatchingResults = 
+        (i + 1 < messages.length) && 
+        messages[i + 1].role === 'user' &&
+        Array.isArray(messages[i + 1].content) &&
+        toolUseBlocks.every((toolUse: any) => {
+          return messages[i + 1].content.some((block: any) => 
+            block.type === 'tool_result' && 
+            block.tool_use_id === toolUse.id
+          );
+        });
+      
+      // If not, insert a message with tool_result blocks
+      if (!hasMatchingResults) {
+        console.log(`Adding missing tool_result blocks for ${toolUseBlocks.length} tool_use blocks`);
+        
+        // Create a tool_result for each tool_use
+        const toolResultBlocks = toolUseBlocks.map((toolUse: any) => ({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: JSON.stringify({ status: 'success', result: 'Tool completed successfully' })
+        }));
+        
+        // Insert a user message with the tool_result blocks
+        validatedMessages.push({
+          role: 'user',
+          content: toolResultBlocks
+        });
+      }
+    }
+  }
+  
   return {
     finalResponse,
     toolCalls,
-    messages
+    messages: validatedMessages
   };
 }

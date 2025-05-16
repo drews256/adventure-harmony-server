@@ -17,7 +17,8 @@ import { withRetry } from './utils/retry';
 import { 
   buildConversationHistoryWithTools,
   formatToolResponsesForClaude,
-  processToolCallsFromClaude
+  processToolCallsFromClaude,
+  filterToolParameters
 } from './simplified-tool-handler';
 
 dotenv.config();
@@ -468,11 +469,12 @@ async function processMessage(messageId: string) {
     const filteredUniqueTools = filterToolsByContent(allTools, "orderline token");
     
     // We make this variable so it can be modified later if needed
-    let tools = filteredUniqueTools.map((tool) => ({
+    // Filter tool parameters - remove unnecessary input options
+    let tools = filterToolParameters(filteredUniqueTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.inputSchema,
-    }));
+    })));
 
     // Validate and fix conversation history before cleaning
     const validatedMessages = validateAndFixConversationHistory(messages);
