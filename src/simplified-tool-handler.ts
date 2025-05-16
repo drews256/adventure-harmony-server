@@ -103,55 +103,70 @@ export function buildConversationHistoryWithTools(messages: any[]) {
     msg.tool_calls.length > 0
   );
   
-  // Process each tool call
+  // Process each tool call message (grouping all tools from the same message)
   for (const toolCallMsg of toolCallMessages) {
-    for (const toolCall of toolCallMsg.tool_calls) {
-      // Skip if invalid tool call
-      if (!toolCall.id || !toolCall.name) continue;
+    // Get all valid tool calls for this message
+    const validToolCalls = toolCallMsg.tool_calls.filter((toolCall: any) => toolCall.id && toolCall.name);
+    
+    if (validToolCalls.length === 0) continue;
+    
+    // Create tool use message with non-empty text block
+    const textContent = 
+      (typeof toolCallMsg.content === 'string' && toolCallMsg.content.trim() !== '') 
+        ? toolCallMsg.content 
+        : `Using tools`;
       
+    // Create array with all tool_use blocks for this message
+    const toolUseContent = [
+      { type: 'text', text: textContent }
+    ];
+    
+    // Add all tool use blocks from this message
+    for (const toolCall of validToolCalls) {
+      // TS needs explicit type for tool use blocks
+      const toolUseBlock: any = { 
+        type: 'tool_use',
+        id: toolCall.id,
+        name: toolCall.name,
+        input: toolCall.input || toolCall.arguments || {}
+      };
+      toolUseContent.push(toolUseBlock);
+    }
+    
+    // 1. Add a single assistant message with all tool_use blocks
+    claudeMessages.push({
+      role: 'assistant',
+      content: toolUseContent
+    });
+    
+    // 2. Create tool_result blocks for all tools in this message
+    const toolResultBlocks = [];
+    
+    for (const toolCall of validToolCalls) {
       // Find corresponding tool result
       const toolResult = messages.find(msg => 
         msg.tool_result_for === toolCall.id && 
         typeof msg.content === 'string'
       );
       
-      // Create tool use message with non-empty text block
-      const textContent = 
-        (typeof toolCallMsg.content === 'string' && toolCallMsg.content.trim() !== '') 
-          ? toolCallMsg.content 
-          : `Using ${toolCall.name} tool`;
-      
-      // 1. Add assistant message with tool_use
-      claudeMessages.push({
-        role: 'assistant',
-        content: [
-          { type: 'text', text: textContent },
-          { 
-            type: 'tool_use',
-            id: toolCall.id,
-            name: toolCall.name,
-            input: toolCall.input || toolCall.arguments || {}
-          }
-        ]
-      });
-      
-      // 2. Add user message with tool_result
+      // Add tool result block
       const resultContent = 
         (toolResult && typeof toolResult.content === 'string')
           ? toolResult.content
           : JSON.stringify({ status: 'success', result: 'Tool completed successfully' });
       
-      claudeMessages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: toolCall.id,
-            content: resultContent
-          }
-        ]
+      toolResultBlocks.push({
+        type: 'tool_result',
+        tool_use_id: toolCall.id,
+        content: resultContent
       });
     }
+    
+    // Add a single user message with all tool_result blocks
+    claudeMessages.push({
+      role: 'user',
+      content: toolResultBlocks
+    });
   }
   
   // 3. Ensure every tool_use has a corresponding tool_result in the next message
