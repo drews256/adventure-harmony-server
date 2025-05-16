@@ -227,9 +227,9 @@ export function buildConversationHistoryWithTools(messages: any[]) {
   return uniqueMessages;
 }
 
-// Import the formatToolResponse function at the top of the file
-import { formatToolResponse } from './services/response-formatter';
-import { Anthropic } from '@anthropic-ai/sdk';
+// These are already imported at the top of the file
+// import { formatToolResponse } from './services/response-formatter';
+// import { Anthropic } from '@anthropic-ai/sdk';
 
 // Function to extract and process tool calls from Claude's response
 export async function processToolCallsFromClaude(responseContent: any[], 
@@ -370,16 +370,24 @@ export async function processToolCallsFromClaude(responseContent: any[],
       // Note: We're using the conversation history we've already built
       const followUpMessages = [];
       
+      // Define specific types for content blocks to ensure they match Anthropic API
+      type TextBlock = { type: 'text', text: string };
+      type ToolUseBlock = { type: 'tool_use', id: string, name: string, input: any };
+      
       // Add assistant message with initial response and tool use
-      const initialToolUseBlocks = [{ type: 'text', text: finalResponse }];
-      toolUseBlocks.forEach(block => {
+      const initialToolUseBlocks: Array<TextBlock | ToolUseBlock> = [
+        { type: 'text', text: finalResponse }
+      ];
+      
+      // Add tool use blocks with the correct structure
+      for (const block of toolUseBlocks) {
         initialToolUseBlocks.push({
           type: 'tool_use',
           id: block.id,
           name: block.name,
           input: block.input || {}
-        });
-      });
+        } as ToolUseBlock);
+      }
       
       followUpMessages.push({
         role: 'assistant',
@@ -398,16 +406,55 @@ export async function processToolCallsFromClaude(responseContent: any[],
         content: toolResultBlocks
       });
       
+      // Properly typed message arrays
+      const typedFollowUpMessages: Array<{role: 'user' | 'assistant', content: any}> = [];
+
+      // Process follow-up messages to ensure they conform to the Anthropic API
+      for (const msg of followUpMessages) {
+        // Ensure role is strictly 'user' or 'assistant' as a literal type
+        const role: 'user' | 'assistant' = msg.role === 'user' ? 'user' : 'assistant';
+        
+        // If content is an array, ensure it follows ContentBlockParam format
+        if (Array.isArray(msg.content)) {
+          // Create a properly formatted content array
+          const formattedContent = msg.content.map((block: any) => {
+            if (block.type === 'text') {
+              return { type: 'text' as const, text: block.text };
+            } else if (block.type === 'tool_use') {
+              return {
+                type: 'tool_use' as const,
+                name: block.name,
+                input: block.input || {},
+                id: block.id
+              };
+            } else if (block.type === 'tool_result') {
+              return {
+                type: 'tool_result' as const,
+                tool_use_id: block.tool_use_id,
+                content: block.content
+              };
+            }
+            // Skip invalid blocks
+            return null;
+          }).filter(Boolean); // Remove any null values
+          
+          typedFollowUpMessages.push({ role, content: formattedContent });
+        } else if (typeof msg.content === 'string') {
+          // If content is a string, keep it as is
+          typedFollowUpMessages.push({ role, content: msg.content });
+        }
+      }
+
       // Call Claude with follow-up
       const followUpResponse = await anthropic.messages.create({
         model: "claude-3-5-sonnet-20241022",
         max_tokens: 1000,
         temperature: 0.7,
         messages: [
-          ...followUpMessages,  // Include only the most recent messages
+          ...typedFollowUpMessages,
           // Prompt Claude to summarize the tool results
           {
-            role: 'user',
+            role: 'user' as const,
             content: "Please analyze these tool results and give me a brief summary of what you found. Keep your response concise as it will be sent via SMS."
           }
         ]
