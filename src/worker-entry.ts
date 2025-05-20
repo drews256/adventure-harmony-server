@@ -42,7 +42,7 @@ class MCP_ConnectionManager {
   private connectPromise: Promise<any> | null = null;
   private connectionAttempts = 0;
   private readonly MAX_ATTEMPTS = 3;
-  private readonly MCP_ENDPOINT = "https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com";
+  private readonly MCP_ENDPOINT = "https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/mcp";
   
   // Create a completely new connection with StreamableHTTP transport
   private createNewConnection() {
@@ -57,7 +57,6 @@ class MCP_ConnectionManager {
     this.transport = new StreamableHTTPClientTransport(
       new URL(this.MCP_ENDPOINT),
       {
-        // Configure reconnection options
         reconnectionOptions: {
           initialReconnectionDelay: 1000,
           maxReconnectionDelay: 30000,
