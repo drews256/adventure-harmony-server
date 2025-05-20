@@ -31,192 +31,213 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
 });
 
-// Create a connection manager object to isolate MCP connection state
-const MCPConnectionManager = {
-  client: null as Client | null,
-  transport: null as SSEClientTransport | null,
-  connectionLock: false,
-  connectionPromise: null as Promise<any> | null,
-  connectionAttempts: 0,
-  MAX_CONNECTION_ATTEMPTS: 3,
+// MCP Connection Manager with better state tracking
+class MCP_ConnectionManager {
+  // State tracking
+  private client: Client | null = null;
+  private transport: SSEClientTransport | null = null;
+  private isConnected = false;
+  private connecting = false;
+  private connectPromise: Promise<any> | null = null;
+  private connectionAttempts = 0;
+  private readonly MAX_ATTEMPTS = 3;
   
-  // Reset the connection state completely
-  async reset() {
-    console.log("Completely resetting MCP client connection");
+  // Start completely fresh - never reuse instances
+  private createNewConnection() {
+    // Always create completely new instances to avoid issues
+    const clientId = `mcp-client-${Date.now()}`;
+    this.client = new Client({ name: clientId, version: "1.0.0" });
     
-    // Wait for any pending connection attempts to finish
-    if (this.connectionLock) {
-      console.log("Waiting for current connection attempt to finish before reset");
-      if (this.connectionPromise) {
-        try {
-          await this.connectionPromise;
-        } catch (e) {
-          // Ignore errors from the connection promise
+    this.transport = new SSEClientTransport(
+      new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse"),
+      {
+        requestInit: {
+          headers: {
+            'Connection': 'keep-alive'
+          }
         }
       }
-    }
+    );
     
-    // Clean up transport first
-    if (this.transport) {
-      try {
-        // Try to clean up the transport
-        const transport = this.transport as any;
-        if (transport._started && typeof transport.stop === 'function') {
-          await transport.stop();
-        }
-        if (typeof transport.close === 'function') {
-          await transport.close();
-        }
-        if (transport.abort && typeof transport.abort === 'function') {
-          transport.abort();
-        }
-      } catch (e) {
-        console.error('Error cleaning up transport:', e);
+    // Set up error handler on transport
+    this.transport.onerror = (error) => {
+      console.error('MCP transport error:', error);
+      const errorMsg = String(error);
+      
+      if (errorMsg.includes('stream is not readable') || 
+          errorMsg.includes('Error POSTing to endpoint')) {
+        console.error('Detected stream issue in transport');
+        this.isConnected = false;  // Mark as disconnected
+        // Don't auto-reset here - let the next connection attempt handle it
       }
-    }
+    };
     
-    // Then clean up client
-    if (this.client) {
-      try {
-        await this.client.close();
-      } catch (e) {
-        console.error('Error closing MCP client:', e);
-      }
-    }
+    // Reset state flags
+    this.isConnected = false;
+    this.connecting = false;
+    this.connectPromise = null;
     
-    // Reset all state
-    this.client = null;
-    this.transport = null;
-    this.connectionLock = false;
-    this.connectionPromise = null;
-    this.connectionAttempts = 0;
-    console.log("MCP client completely reset");
-  },
+    console.log(`Created new MCP client: ${clientId}`);
+  }
   
-  // Get a connected client
-  async getClient() {
-    // If we already have a client, return it
-    if (this.client) {
+  // Controlled connection with state tracking
+  private async connectInternal() {
+    // If already connected, just return
+    if (this.isConnected && this.client) {
       return this.client;
     }
     
-    // If we're already connecting, wait for that to finish
-    if (this.connectionLock) {
-      console.log("Connection already in progress, waiting...");
-      if (this.connectionPromise) {
-        await this.connectionPromise;
+    // If already connecting, wait for that
+    if (this.connecting && this.connectPromise) {
+      try {
+        await this.connectPromise;
         return this.client;
+      } catch (error) {
+        console.error("Error while waiting for existing connection:", error);
+        // Continue with a new connection
       }
     }
     
-    // Set the connection lock
-    this.connectionLock = true;
+    // Need a new connection
+    if (!this.client || !this.transport) {
+      this.createNewConnection();
+    }
     
-    // Create a new connection promise
-    this.connectionPromise = (async () => {
+    // Set connecting state
+    this.connecting = true;
+    
+    // Create the connection promise
+    this.connectPromise = (async () => {
       try {
-        console.log('Creating new MCP client connection');
-        
-        // Create a new client with a unique ID to avoid conflicts
-        const clientId = `mcp-client-cli-${Date.now()}`;
-        this.client = new Client({ name: clientId, version: "1.0.0" });
-        
-        // Create a fresh transport
-        this.transport = new SSEClientTransport(
-          new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse"),
-          {
-            requestInit: {
-              headers: {
-                'Connection': 'keep-alive'
-              }
-            }
-          }
-        );
-        
-        // Set up error handler
-        this.transport.onerror = (error) => {
-          console.error('MCP transport error:', error);
-          const errorMsg = String(error);
-          
-          if (errorMsg.includes('stream is not readable') || 
-              errorMsg.includes('Error POSTing to endpoint') ||
-              errorMsg.includes('already started')) {
-            console.error('Critical transport error, forcing reset');
-            this.reset();
-          }
-        };
+        console.log("Starting new MCP connection");
         
         // Connect with timeout
-        const connectWithTimeout = async () => {
-          const connectPromise = this.client!.connect(this.transport!);
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error("Connection timeout exceeded")), 15000);
-          });
-          
-          return Promise.race([connectPromise, timeoutPromise]);
-        };
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("Connection timeout exceeded")), 15000);
+        });
         
-        // Try to connect with retries
-        await withRetry(
-          connectWithTimeout,
-          {
-            maxRetries: 2,
-            initialDelay: 1000,
-            retryableErrors: ['timeout', 'network error', 'stream is not readable', 'Error POSTing']
-          }
-        );
+        // Connect the client to the transport
+        await Promise.race([
+          this.client!.connect(this.transport!),
+          timeoutPromise
+        ]);
         
-        console.log("Successfully connected to MCP server");
+        // Connection successful
+        this.isConnected = true;
         this.connectionAttempts = 0;
+        console.log("Successfully connected to MCP server");
         return this.client;
       } catch (error) {
+        // Handle connection error
         console.error("Failed to connect to MCP server:", error);
+        this.isConnected = false;
         this.connectionAttempts++;
         
-        // Full reset after multiple failures
-        if (this.connectionAttempts >= this.MAX_CONNECTION_ATTEMPTS) {
-          console.error(`Failed ${this.MAX_CONNECTION_ATTEMPTS} connection attempts, forcing complete reset`);
+        // Check if we need to reset
+        if (this.connectionAttempts >= this.MAX_ATTEMPTS) {
+          console.error(`Failed ${this.MAX_ATTEMPTS} connection attempts, forcing reset`);
           await this.reset();
-        } else {
-          // Partial reset for retry
-          this.client = null;
-          this.transport = null;
         }
         
         throw error;
       } finally {
-        // Always release the lock when done
-        this.connectionLock = false;
+        // Reset connecting state
+        this.connecting = false;
+        this.connectPromise = null;
       }
     })();
     
-    // Wait for the connection and return the client
+    // Return the result of the connection attempt
     try {
-      await this.connectionPromise;
-      return this.client;
-    } catch (e) {
-      throw e;
-    } finally {
-      // Clear the promise reference
-      this.connectionPromise = null;
+      return await this.connectPromise;
+    } catch (error) {
+      throw error;
     }
-  },
+  }
   
-  // Check health of current connection
-  async checkHealth() {
-    if (!this.client) return false;
+  // Clean up the connection completely
+  async reset() {
+    console.log("Resetting MCP connection");
     
+    // Clean up first
+    if (this.client || this.transport) {
+      try {
+        // Try to explicitly stop the transport if it exists
+        if (this.transport) {
+          // Use any to access internal properties
+          const t = this.transport as any;
+          // If it has a stop method and is started, try to stop it
+          if (t._started && typeof t.stop === 'function') {
+            await t.stop();
+          }
+        }
+        
+        // Close the client if it exists
+        if (this.client) {
+          await this.client.close();
+        }
+      } catch (error) {
+        console.error("Error during connection cleanup:", error);
+      }
+    }
+    
+    // Reset state
+    this.client = null;
+    this.transport = null;
+    this.isConnected = false;
+    this.connecting = false;
+    this.connectPromise = null;
+    this.connectionAttempts = 0;
+    
+    console.log("MCP connection reset complete");
+  }
+  
+  // Public API
+  async getClient() {
     try {
-      await this.client.listTools();
-      console.log('MCP connection health check: OK');
+      return await this.connectInternal();
+    } catch (error) {
+      if (String(error).includes('already started')) {
+        // If we get the "already started" error, reset and try again
+        console.error("Detected 'already started' error, resetting connection");
+        await this.reset();
+        // Create a fresh connection
+        this.createNewConnection();
+        // And try to connect again
+        return await this.connectInternal();
+      }
+      throw error;
+    }
+  }
+  
+  async checkHealth() {
+    // If not connected, try to connect
+    if (!this.isConnected || !this.client) {
+      try {
+        await this.getClient();
+      } catch (error) {
+        console.error("Health check: cannot connect", error);
+        return false;
+      }
+    }
+    
+    // Check if the connection is working
+    try {
+      await this.client!.listTools();
+      console.log("MCP connection health check: OK");
       return true;
     } catch (error) {
-      console.error('MCP health check failed:', error);
+      console.error("MCP health check failed:", error);
+      // Reset the connection on health check failure
+      this.isConnected = false;
       await this.reset();
       return false;
     }
   }
-};
+}
+
+// Create a single instance of the connection manager
+const MCPConnectionManager = new MCP_ConnectionManager();
 
 // Export a simplified reset function for external use
 export async function resetMcpClient() {
