@@ -150,6 +150,11 @@ class MCP_ConnectionManager {
             throw new Error(`Stream not readable during connection`);
           } else if (msg.includes('timeout')) {
             throw new Error(`Connection timed out`);
+          } else if (msg.includes('Server already initialized')) {
+            console.log('Server reports it is already initialized, treating as successfully connected');
+            // The server is already initialized, which actually means we're connected
+            this.isConnected = true;
+            return this.client;
           } else {
             throw connError;
           }
@@ -238,6 +243,13 @@ class MCP_ConnectionManager {
               throw new Error("Connection retry needed due to concurrent connection attempt");
             }
             
+            if (errorMsg.includes('Server already initialized')) {
+              // This means the server is already connected, so we can consider this a success
+              console.log("Server reports already initialized, considering connection successful");
+              this.isConnected = true;
+              return this.client;
+            }
+            
             if (errorMsg.includes('stream is not readable') || 
                 errorMsg.includes('Error POSTing') ||
                 errorMsg.includes('InternalServerError')) {
@@ -264,7 +276,8 @@ class MCP_ConnectionManager {
             'Connection reset',
             'InternalServerError',
             'timeout',
-            'network error'
+            'network error',
+            'Server already initialized'
           ]
         }
       );
