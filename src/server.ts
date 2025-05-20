@@ -38,9 +38,17 @@ async function ensureMcpConnection() {
       mcpClient = new Client({ name: clientId, version: "1.0.0" });
       
       // Use StreamableHTTP transport instead of SSE for more reliability
-      const transport = new SSEClientTransport(
-        new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse")
-      );
+      // Log the transport creation
+      console.log("Creating MCP client transport");
+      
+      // Important: Use /mcp endpoint for proper StreamableHTTP transport
+      const transportUrl = new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/mcp");
+      console.log(`Using transport URL: ${transportUrl.toString()}`);
+      
+      const transport = new SSEClientTransport(transportUrl);
+      
+      // Log transport details
+      console.log(`Transport created: ${transport.constructor.name}`);
       
       console.log('Starting new MCP connection with SSE transport');
       

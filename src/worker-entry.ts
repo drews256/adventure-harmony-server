@@ -50,30 +50,62 @@ class MCP_ConnectionManager {
     // Always create completely new instances to avoid issues
     const clientId = `streamable-http-client-${Date.now()}`;
     console.log(`Creating new MCP client: ${clientId}`);
+    console.log(`Using MCP endpoint: ${this.MCP_ENDPOINT}`);
     
     // Create client
     this.client = new Client({ name: clientId, version: "1.0.0" });
     
-    // Create patched StreamableHTTP transport
+    // Log detailed client configuration
+    console.log(`Client configuration: ${JSON.stringify({
+      name: clientId,
+      version: "1.0.0"
+    })}`);
+    
+    // Create patched StreamableHTTP transport with detailed logging
+    const transportConfig = {
+      // Add proper headers to ensure compatibility
+      requestInit: {
+        headers: {
+          'Accept': 'application/json, text/event-stream',
+          'Content-Type': 'application/json'
+        },
+        // Add additional debugging details
+        credentials: 'same-origin',
+        mode: 'cors'
+      },
+      // Configure reconnection options
+      reconnectionOptions: {
+        initialReconnectionDelay: 1000,
+        maxReconnectionDelay: 30000,
+        reconnectionDelayGrowFactor: 1.5,
+        maxRetries: 2
+      }
+    };
+    
+    console.log(`Creating transport with config: ${JSON.stringify(transportConfig)}`);
+    
     this.transport = createPatchedStreamableHTTPTransport(
       new URL(this.MCP_ENDPOINT),
-      {
-        // Add proper headers to ensure compatibility
-        requestInit: {
-          headers: {
-            'Accept': 'application/json, text/event-stream',
-            'Content-Type': 'application/json'
-          }
-        },
-        // Configure reconnection options
-        reconnectionOptions: {
-          initialReconnectionDelay: 1000,
-          maxReconnectionDelay: 30000,
-          reconnectionDelayGrowFactor: 1.5,
-          maxRetries: 2
-        }
-      }
+      transportConfig
     );
+    
+    // Add request logging to show exactly what's being sent
+    const originalSend = this.transport.send;
+    this.transport.send = async (message: any, options?: any) => {
+      console.log(`TRANSPORT SEND: ${JSON.stringify(message)}`);
+      if (options) {
+        console.log(`TRANSPORT OPTIONS: ${JSON.stringify(options)}`);
+      }
+      try {
+        const result = await originalSend.call(this.transport, message, options);
+        console.log(`TRANSPORT SEND SUCCESS`);
+        return result;
+      } catch (error) {
+        console.error(`TRANSPORT SEND ERROR: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Full error details: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
+        throw error;
+      }
+    };
     
     // Set up error handler to get notified of transport issues
     this.transport.onerror = (error: any) => {
@@ -135,12 +167,52 @@ class MCP_ConnectionManager {
             setTimeout(() => reject(new Error("Connection timeout exceeded")), 15000);
           });
           
-          // Connect the client to the transport - avoid calling start() explicitly
-          // as the Client.connect() method will call start() on the transport internally
-          await Promise.race([
-            this.client!.connect(this.transport!),
-            timeoutPromise
-          ]);
+          // Add more detailed logging for the connection process
+          console.log(`Attempting to connect client to transport...`);
+          
+          // Add a custom listener to capture response data
+          const originalFetch = global.fetch;
+          global.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
+            console.log(`FETCH REQUEST to ${typeof input === 'string' ? input : input.toString()}`);
+            console.log(`FETCH HEADERS: ${JSON.stringify(init?.headers || {})}`);
+            console.log(`FETCH BODY: ${init?.body || '[No body]'}`);
+            
+            try {
+              const response = await originalFetch(input, init);
+              
+              // Clone the response to read it twice - once for logging and once for actual use
+              const responseClone = response.clone();
+              
+              // Log response details
+              console.log(`FETCH RESPONSE STATUS: ${response.status} ${response.statusText}`);
+              console.log(`FETCH RESPONSE HEADERS: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
+              
+              // Try to read and log response body, if possible
+              try {
+                const bodyText = await responseClone.text();
+                console.log(`FETCH RESPONSE BODY: ${bodyText.length > 500 ? bodyText.substring(0, 500) + '...' : bodyText}`);
+              } catch (e) {
+                console.log(`FETCH RESPONSE BODY: [Could not read body: ${e}]`);
+              }
+              
+              return response;
+            } catch (error) {
+              console.error(`FETCH ERROR: ${error instanceof Error ? error.message : String(error)}`);
+              throw error;
+            }
+          };
+          
+          try {
+            // Connect the client to the transport - avoid calling start() explicitly
+            // as the Client.connect() method will call start() on the transport internally
+            await Promise.race([
+              this.client!.connect(this.transport!),
+              timeoutPromise
+            ]);
+          } finally {
+            // Restore original fetch
+            global.fetch = originalFetch;
+          }
         } catch (connError) {
           // Add better context to the error
           const msg = String(connError);
@@ -159,12 +231,48 @@ class MCP_ConnectionManager {
               await new Promise(resolve => setTimeout(resolve, 1000));
               
               // Try a simple ping to check if we can actually communicate
-              await this.transport.send({
-                jsonrpc: "2.0",
-                method: "ping",
-                params: {},
-                id: Date.now()
-              });
+              console.log(`Sending ping message to verify connection...`);
+              
+              // Capture fetch for this specific ping request
+              const originalFetch = global.fetch;
+              global.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
+                console.log(`PING FETCH REQUEST to ${typeof input === 'string' ? input : input.toString()}`);
+                console.log(`PING FETCH HEADERS: ${JSON.stringify(init?.headers || {})}`);
+                console.log(`PING FETCH BODY: ${init?.body || '[No body]'}`);
+                
+                try {
+                  const response = await originalFetch(input, init);
+                  
+                  // Clone the response for logging
+                  const clone = response.clone();
+                  
+                  console.log(`PING FETCH RESPONSE STATUS: ${response.status} ${response.statusText}`);
+                  
+                  try {
+                    const text = await clone.text();
+                    console.log(`PING FETCH RESPONSE BODY: ${text}`);
+                  } catch (e) {
+                    console.log(`PING FETCH RESPONSE BODY: [Could not read: ${e}]`);
+                  }
+                  
+                  return response;
+                } catch (error) {
+                  console.error(`PING FETCH ERROR: ${error}`);
+                  throw error;
+                }
+              };
+              
+              try {
+                await this.transport.send({
+                  jsonrpc: "2.0",
+                  method: "ping",
+                  params: {},
+                  id: Date.now()
+                });
+              } finally {
+                // Restore original fetch
+                global.fetch = originalFetch;
+              }
               
               console.log('Connection verified with ping, connection is active');
               this.isConnected = true;
@@ -270,12 +378,48 @@ class MCP_ConnectionManager {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 
                 // Try a simple ping to check if we can actually communicate
-                await this.transport.send({
-                  jsonrpc: "2.0",
-                  method: "ping",
-                  params: {},
-                  id: Date.now()
-                });
+                console.log(`Sending ping message from getClient to verify connection...`);
+                
+                // Capture fetch for this specific ping request
+                const originalFetch = global.fetch;
+                global.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
+                  console.log(`GETCLIENT PING REQUEST to ${typeof input === 'string' ? input : input.toString()}`);
+                  console.log(`GETCLIENT PING HEADERS: ${JSON.stringify(init?.headers || {})}`);
+                  console.log(`GETCLIENT PING BODY: ${init?.body || '[No body]'}`);
+                  
+                  try {
+                    const response = await originalFetch(input, init);
+                    
+                    // Clone the response for logging
+                    const clone = response.clone();
+                    
+                    console.log(`GETCLIENT PING RESPONSE STATUS: ${response.status} ${response.statusText}`);
+                    
+                    try {
+                      const text = await clone.text();
+                      console.log(`GETCLIENT PING RESPONSE BODY: ${text}`);
+                    } catch (e) {
+                      console.log(`GETCLIENT PING RESPONSE BODY: [Could not read: ${e}]`);
+                    }
+                    
+                    return response;
+                  } catch (error) {
+                    console.error(`GETCLIENT PING FETCH ERROR: ${error}`);
+                    throw error;
+                  }
+                };
+                
+                try {
+                  await this.transport.send({
+                    jsonrpc: "2.0",
+                    method: "ping",
+                    params: {},
+                    id: Date.now()
+                  });
+                } finally {
+                  // Restore original fetch
+                  global.fetch = originalFetch;
+                }
                 
                 console.log('Connection verified with ping in getClient, connection is active');
                 this.isConnected = true;
