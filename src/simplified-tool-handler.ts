@@ -325,7 +325,8 @@ export async function processToolCallsFromClaude(responseContent: any[],
             'Error POSTing to endpoint', 
             'Connection timeout', 
             'MCP connection reset',
-            'network error'
+            'network error',
+            'Server already initialized'
           ]
         }
       );
