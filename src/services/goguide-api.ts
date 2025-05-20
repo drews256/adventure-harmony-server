@@ -27,38 +27,67 @@ export class GoGuideAPIClient {
    * Get available tools from MCP server, filtered by categories
    */
   async getTools(categories?: string[], profileId?: string): Promise<MCPTool[]> {
+    console.log(`Getting tools with${profileId ? ' profile ID: ' + profileId : 'out profile ID'}`);
+    if (categories && categories.length > 0) {
+      console.log(`Filtering by categories: ${categories.join(', ')}`);
+    }
+    
     // Include profileId in the request to get profile-specific tools
     const listToolsOptions = profileId ? { profileId } : undefined;
     const toolsResult = await this.mcpClient.listTools(listToolsOptions);
+    
+    console.log(`MCP server returned ${toolsResult.tools.length} tools`);
+    
+    // Log a sample of tool names
+    const sampleTools = toolsResult.tools.slice(0, 5).map(t => t.name);
+    console.log(`Sample tools from MCP: ${JSON.stringify(sampleTools)}`);
     
     if (!categories || categories.length === 0) {
       return toolsResult.tools;
     }
     
     // Filter tools by category
-    return toolsResult.tools.filter((tool: MCPTool) => {
+    const filteredTools = toolsResult.tools.filter((tool: MCPTool) => {
       // Check if the tool belongs to any of the requested categories
       return categories.some(category => 
         tool.name.toLowerCase().includes(category.toLowerCase()) ||
         tool.description.toLowerCase().includes(category.toLowerCase())
       );
     });
+    
+    console.log(`After category filtering: ${filteredTools.length} tools remain`);
+    
+    return filteredTools;
   }
   
   /**
    * Call a specific tool directly with simplified interface
    */
   async callTool(toolName: string, args: Record<string, unknown>, profileId?: string): Promise<any> {
-    // Get the tool by name
-    const toolsResult = await this.mcpClient.listTools();
+    // Log the profile ID information
+    if (profileId) {
+      console.log(`Calling tool ${toolName} with profile ID: ${profileId}`);
+    } else {
+      console.log(`Calling tool ${toolName} without profile ID`);
+    }
+    
+    // Get the tool by name - pass profileId when listing tools as well
+    const toolsOptions = profileId ? { profileId } : undefined;
+    const toolsResult = await this.mcpClient.listTools(toolsOptions);
+    
+    console.log(`Found ${toolsResult.tools.length} tools available`);
+    
     const tool = toolsResult.tools.find((t: MCPTool) => t.name.includes(toolName));
     
     if (!tool) {
+      console.error(`Tool not found: ${toolName}`);
       throw new Error(`Tool not found: ${toolName}`);
     }
     
     // Include profileId in arguments if provided
     const argsWithProfile = profileId ? { ...args, profileId } : args;
+    
+    console.log(`Executing tool ${tool.name} (ID: ${tool.id || 'unknown'}) with profileId: ${profileId || 'none'}`);
     
     // Call the tool with provided arguments
     return this.mcpClient.callTool({
