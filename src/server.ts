@@ -30,14 +30,34 @@ const anthropic = new Anthropic({
 let mcpClient: Client | null = null;
 
 async function ensureMcpConnection() {
-  if (!mcpClient) {
-    mcpClient = new Client({ name: "mcp-client-cli", version: "1.0.0" });
-    const transport = new SSEClientTransport(
-      new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse")
-    );
-    await mcpClient.connect(transport);
+  try {
+    if (!mcpClient) {
+      const clientId = `mcp-client-cli-${Date.now()}`;
+      console.log(`Creating new MCP client: ${clientId}`);
+      
+      mcpClient = new Client({ name: clientId, version: "1.0.0" });
+      
+      // Use StreamableHTTP transport instead of SSE for more reliability
+      const transport = new SSEClientTransport(
+        new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse")
+      );
+      
+      console.log('Starting new MCP connection with SSE transport');
+      
+      await mcpClient.connect(transport);
+      console.log('MCP client connected successfully');
+    }
+    
+    return mcpClient;
+  } catch (error) {
+    console.error('Error connecting to MCP server:', error);
+    
+    // Reset the client if there was an error
+    mcpClient = null;
+    
+    // Throw the error to be handled by the caller
+    throw new Error(`Failed to connect to MCP server: ${error.message}`);
   }
-  return mcpClient;
 }
 
 // Middleware

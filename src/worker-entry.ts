@@ -151,10 +151,28 @@ class MCP_ConnectionManager {
           } else if (msg.includes('timeout')) {
             throw new Error(`Connection timed out`);
           } else if (msg.includes('Server already initialized')) {
-            console.log('Server reports it is already initialized, treating as successfully connected');
-            // The server is already initialized, which actually means we're connected
-            this.isConnected = true;
-            return this.client;
+            console.log('Server reports it is already initialized, ensuring transport is actually connected...');
+            
+            // Even though the server is initialized, we need to make sure the transport is ready
+            try {
+              // Wait a short time for connections to stabilize
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
+              // Try a simple ping to check if we can actually communicate
+              await this.transport.send({
+                jsonrpc: "2.0",
+                method: "ping",
+                params: {},
+                id: Date.now()
+              });
+              
+              console.log('Connection verified with ping, connection is active');
+              this.isConnected = true;
+              return this.client;
+            } catch (pingError) {
+              console.error('Connection verification failed, transport not ready:', pingError);
+              throw new Error('Transport not ready: ' + pingError.message);
+            }
           } else {
             throw connError;
           }
@@ -244,10 +262,31 @@ class MCP_ConnectionManager {
             }
             
             if (errorMsg.includes('Server already initialized')) {
-              // This means the server is already connected, so we can consider this a success
-              console.log("Server reports already initialized, considering connection successful");
-              this.isConnected = true;
-              return this.client;
+              // This means the server is already connected, but we need to verify the connection
+              console.log("Server reports already initialized, verifying connection");
+              
+              try {
+                // Wait a short time for connections to stabilize
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Try a simple ping to check if we can actually communicate
+                await this.transport.send({
+                  jsonrpc: "2.0",
+                  method: "ping",
+                  params: {},
+                  id: Date.now()
+                });
+                
+                console.log('Connection verified with ping in getClient, connection is active');
+                this.isConnected = true;
+                return this.client;
+              } catch (pingError) {
+                console.error('Connection verification failed in getClient, transport not ready:', pingError);
+                // Reset and try again
+                await this.reset();
+                this.createNewConnection();
+                throw new Error('Transport not ready in getClient: ' + pingError.message);
+              }
             }
             
             if (errorMsg.includes('stream is not readable') || 
