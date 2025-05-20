@@ -933,7 +933,8 @@ async function processMessage(messageId: string) {
     // Create GoGuide client
     const goGuideClient = createGoGuideClient(mcp, supabase);
     
-    const allTools = await goGuideClient.getTools();
+    // Get tools with profileId to ensure profile-specific tools are included
+    const allTools = await goGuideClient.getTools(undefined, message.profile_id);
 
     // Apply our filter to specifically include only OrderLine and Token tools
     const filteredUniqueTools = filterToolsByContent(allTools, "orderline token");
