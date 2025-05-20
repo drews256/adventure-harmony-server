@@ -6,6 +6,10 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { createPatchedStreamableHTTPTransport } from './utils/patched-streamable-http.js';
 import dotenv from 'dotenv';
 
+// Add missing types for fetch API
+type RequestInfo = Request | string;
+type ResponseType = Response;
+
 // Import new service modules
 import { GoGuideAPIClient, createGoGuideClient } from './services/goguide-api';
 import { determineConversationContext, getRelevantTools } from './services/tool-context';
