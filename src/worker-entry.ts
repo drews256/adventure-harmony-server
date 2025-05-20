@@ -69,10 +69,10 @@ async function ensureMcpConnection() {
         {
           // Add request configuration with better timeouts
           requestInit: {
-            // Add timeout headers and config
+            // Add connection header only
             headers: {
-              'Connection': 'keep-alive',
-              'Keep-Alive': 'timeout=60'
+              'Connection': 'keep-alive'
+              // Removed invalid Keep-Alive header
             }
           }
         }
