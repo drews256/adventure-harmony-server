@@ -271,13 +271,63 @@ export async function processToolCallsFromClaude(responseContent: any[],
     toolCalls.push(block);
     
     try {
-      // Execute the tool call
-      const toolResult = await mcp.callTool({
-        id: block.id,
-        name: block.name,
-        arguments: block.input,
-        tool_result: []
-      });
+      // Execute the tool call with enhanced retry logic and better error handling
+      let toolResult;
+      
+      // Use withRetry for more comprehensive retry handling with exponential backoff
+      toolResult = await withRetry(
+        async () => {
+          try {
+            return await mcp.callTool({
+              id: block.id,
+              name: block.name,
+              arguments: block.input,
+              tool_result: []
+            });
+          } catch (callError) {
+            // Check if it's an SSE stream error
+            const errorStr = String(callError);
+            if (
+              errorStr.includes("stream is not readable") || 
+              errorStr.includes("Error POSTing to endpoint") ||
+              errorStr.includes("SSE")
+            ) {
+              console.error("SSE connection error, attempting to reconnect...");
+              
+              // Try to force a reconnect by resetting the MCP client
+              try {
+                // Import the mcpClient reference from worker-entry.ts
+                const workerModule = await import('./worker-entry');
+                // Reset the client to force reconnection
+                if (workerModule && typeof workerModule.resetMcpClient === 'function') {
+                  await workerModule.resetMcpClient();
+                }
+                
+                // Throw specific error to trigger retry
+                throw new Error("MCP connection reset, will retry");
+              } catch (resetError) {
+                console.error("MCP reset failed:", resetError);
+                throw resetError;
+              }
+            }
+            
+            // For other types of errors, just rethrow
+            throw callError;
+          }
+        },
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          backoffFactor: 2,
+          retryableErrors: [
+            'stream is not readable', 
+            'Error POSTing to endpoint', 
+            'Connection timeout', 
+            'MCP connection reset',
+            'network error'
+          ]
+        }
+      );
       
       // Format result for storage
       const resultContent = typeof toolResult === 'string' 

@@ -32,16 +32,117 @@ const anthropic = new Anthropic({
 });
 
 let mcpClient: Client | null = null;
+let mcpTransport: SSEClientTransport | null = null;
+let connectionAttempts = 0;
+const MAX_CONNECTION_ATTEMPTS = 3;
+let healthCheckCounter = 0;
+
+// Function to reset MCP client - exported for use by other modules
+export async function resetMcpClient() {
+  console.log("Resetting MCP client connection");
+  
+  if (mcpClient) {
+    try {
+      await mcpClient.close();
+    } catch (e) {
+      console.error('Error closing MCP client:', e);
+    }
+  }
+  
+  mcpClient = null;
+  mcpTransport = null;
+  connectionAttempts = 0;
+  console.log("MCP client reset - will reconnect on next use");
+}
 
 async function ensureMcpConnection() {
+  // If the client doesn't exist or has failed, create a new one
   if (!mcpClient) {
-    mcpClient = new Client({ name: "mcp-client-cli", version: "1.0.0" });
-    const transport = new SSEClientTransport(
-      new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse")
-    );
-    await mcpClient.connect(transport);
+    console.log('Creating new MCP client connection');
+    try {
+      // Create new client
+      mcpClient = new Client({ name: "mcp-client-cli", version: "1.0.0" });
+      
+      // Create transport with better configuration for reliability
+      mcpTransport = new SSEClientTransport(
+        new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/sse"),
+        {
+          // Add request configuration with better timeouts
+          requestInit: {
+            // Add timeout headers and config
+            headers: {
+              'Connection': 'keep-alive',
+              'Keep-Alive': 'timeout=60'
+            }
+          }
+        }
+      );
+      
+      // Set up error handler to detect "stream not readable" issues
+      mcpTransport.onerror = (error) => {
+        console.error('MCP transport error:', error);
+        const errorMsg = String(error);
+        
+        if (errorMsg.includes('stream is not readable') || 
+            errorMsg.includes('Error POSTing to endpoint')) {
+          console.error('Detected stream issue in transport, will reset connection');
+          resetMcpClient();
+        }
+      };
+      
+      // Set a timeout for the connection attempt (using Promise.race pattern)
+      const connectionPromise = withRetry(
+        () => mcpClient!.connect(mcpTransport!),
+        {
+          maxRetries: 2,
+          initialDelay: 1000,
+          retryableErrors: ['timeout', 'network error', 'stream is not readable', 'Error POSTing']
+        }
+      );
+      
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Connection timeout exceeded")), 15000);
+      });
+      
+      // Race the connection against a timeout
+      await Promise.race([connectionPromise, timeoutPromise]);
+      console.log("Successfully connected to MCP server");
+      
+      // Reset connection attempts on success
+      connectionAttempts = 0;
+    } catch (error) {
+      console.error("Failed to connect to MCP server:", error);
+      connectionAttempts++;
+      
+      // Reset client if we've tried too many times
+      if (connectionAttempts >= MAX_CONNECTION_ATTEMPTS) {
+        console.error(`Failed ${MAX_CONNECTION_ATTEMPTS} connection attempts, forcing complete reset`);
+        await resetMcpClient();
+      } else {
+        mcpClient = null; // Reset so we can try again next time
+      }
+      
+      throw error;
+    }
   }
+  
   return mcpClient;
+}
+
+// Check MCP health by making a basic call
+async function checkMcpHealth(): Promise<boolean> {
+  if (!mcpClient) return false;
+  
+  try {
+    // Try a simple operation to verify connection is working
+    await mcpClient.listTools();
+    console.log('MCP connection health check: OK');
+    return true;
+  } catch (error) {
+    console.error('MCP health check failed:', error);
+    await resetMcpClient();
+    return false;
+  }
 }
 
 // Log helper function removed - using console.error for errors only
@@ -820,10 +921,41 @@ ${enhancedPrompt}`;
   }
 }
 
+// Function to check MCP connection health
+async function checkMcpHealth(): Promise<boolean> {
+  try {
+    // Get the MCP client
+    const mcp = await ensureMcpConnection();
+    
+    // Try a simple operation like listing tools
+    await mcp.listTools();
+    
+    console.log('MCP connection health check: OK');
+    return true;
+  } catch (error) {
+    console.error('MCP connection health check failed:', error);
+    
+    // Reset the client to force a reconnect on next use
+    resetMcpClient();
+    return false;
+  }
+}
+
 // Main worker loop
 async function workerLoop() {
+  let healthCheckCounter = 0;
+  
   while (true) {
     try {
+      // Increment counter for periodic health checks
+      healthCheckCounter++;
+      
+      // Perform MCP health check every 5 iterations (or about every 2.5 minutes with 30s delay)
+      if (healthCheckCounter >= 5) {
+        await checkMcpHealth();
+        healthCheckCounter = 0;
+      }
+      
       // Get pending messages
       const { data: pendingMessages, error } = await supabase
         .from('conversation_messages')
@@ -846,6 +978,17 @@ async function workerLoop() {
       await new Promise(resolve => setTimeout(resolve, 30000));
     } catch (error) {
       console.error('Error in worker loop:', error);
+      
+      // If this is a connection error, reset the MCP client
+      const errorStr = String(error);
+      if (errorStr.includes('stream is not readable') ||
+          errorStr.includes('Error POSTing to endpoint') ||
+          errorStr.includes('SSE error') ||
+          errorStr.includes('Connection timeout')) {
+        console.error('Detected SSE connection error in worker loop, resetting MCP client');
+        await resetMcpClient();
+      }
+      
       // Add 30-second delay on error to prevent rapid retries
       await new Promise(resolve => setTimeout(resolve, 30000));
     }
