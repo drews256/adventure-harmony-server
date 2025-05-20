@@ -120,17 +120,15 @@ class MCP_ConnectionManager {
       try {
         console.log("Starting new MCP connection with StreamableHTTP transport");
         
-        // Start the transport
+        // Start the connection
         try {
-          // First start the transport (this is separate from connect in StreamableHTTP)
-          await this.transport!.start();
-          
           // Set a timeout for the connection process
           const timeoutPromise = new Promise((_, reject) => {
             setTimeout(() => reject(new Error("Connection timeout exceeded")), 15000);
           });
           
-          // Connect the client to the transport
+          // Connect the client to the transport - avoid calling start() explicitly
+          // as the Client.connect() method will call start() on the transport internally
           await Promise.race([
             this.client!.connect(this.transport!),
             timeoutPromise
@@ -226,11 +224,10 @@ class MCP_ConnectionManager {
             const errorMsg = String(error);
             
             if (errorMsg.includes('already started')) {
-              // Reset for the 'already started' error
-              console.error("Detected 'already started' error, resetting connection");
-              await this.reset();
-              this.createNewConnection();
-              throw new Error("Connection reset due to 'already started' error");
+              // Don't reset immediately for 'already started' error - this is expected
+              // during concurrent connection attempts and Client.connect will handle it
+              console.error("Detected 'already started' error, allowing retry without reset");
+              throw new Error("Connection retry needed due to concurrent connection attempt");
             }
             
             if (errorMsg.includes('stream is not readable') || 
