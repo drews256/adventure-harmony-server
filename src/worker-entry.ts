@@ -41,6 +41,23 @@ let healthCheckCounter = 0;
 export async function resetMcpClient() {
   console.log("Resetting MCP client connection");
   
+  // First close the transport if it exists
+  if (mcpTransport) {
+    try {
+      // Check if transport has a close method
+      if (typeof (mcpTransport as any).close === 'function') {
+        await (mcpTransport as any).close();
+      }
+      // If transport has a stop method and is started
+      else if (typeof (mcpTransport as any).stop === 'function' && (mcpTransport as any)._started) {
+        await (mcpTransport as any).stop();
+      }
+    } catch (e) {
+      console.error('Error closing MCP transport:', e);
+    }
+  }
+  
+  // Then close the client
   if (mcpClient) {
     try {
       await mcpClient.close();
@@ -92,7 +109,14 @@ async function ensureMcpConnection() {
       
       // Set a timeout for the connection attempt (using Promise.race pattern)
       const connectionPromise = withRetry(
-        () => mcpClient!.connect(mcpTransport!),
+        async () => {
+          // Avoid calling connect if the transport is already started
+          if (mcpTransport && (mcpTransport as any)._started) {
+            console.log('Transport already started, skipping connect');
+            return; // Skip the connect call if transport is already started
+          }
+          return await mcpClient!.connect(mcpTransport!);
+        },
         {
           maxRetries: 2,
           initialDelay: 1000,
