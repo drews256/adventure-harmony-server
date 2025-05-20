@@ -921,25 +921,7 @@ ${enhancedPrompt}`;
   }
 }
 
-// Function to check MCP connection health
-async function checkMcpHealth(): Promise<boolean> {
-  try {
-    // Get the MCP client
-    const mcp = await ensureMcpConnection();
-    
-    // Try a simple operation like listing tools
-    await mcp.listTools();
-    
-    console.log('MCP connection health check: OK');
-    return true;
-  } catch (error) {
-    console.error('MCP connection health check failed:', error);
-    
-    // Reset the client to force a reconnect on next use
-    resetMcpClient();
-    return false;
-  }
-}
+// Function checkMcpHealth is already defined earlier in the file
 
 // Main worker loop
 async function workerLoop() {

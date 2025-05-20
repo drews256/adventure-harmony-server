@@ -5,6 +5,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { formatToolResponse } from './services/response-formatter';
+import { withRetry } from './utils/retry';
 
 /**
  * Filters tool schemas to include only necessary parameters
