@@ -57,6 +57,14 @@ class MCP_ConnectionManager {
     this.transport = new StreamableHTTPClientTransport(
       new URL(this.MCP_ENDPOINT),
       {
+        // Add proper headers to ensure compatibility
+        requestInit: {
+          headers: {
+            'Accept': 'application/json, text/event-stream',
+            'Content-Type': 'application/json'
+          }
+        },
+        // Configure reconnection options
         reconnectionOptions: {
           initialReconnectionDelay: 1000,
           maxReconnectionDelay: 30000,
