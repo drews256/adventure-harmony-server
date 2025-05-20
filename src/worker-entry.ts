@@ -3,6 +3,7 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { createPatchedStreamableHTTPTransport } from './utils/patched-streamable-http.js';
 import dotenv from 'dotenv';
 
 // Import new service modules
@@ -32,11 +33,11 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
 });
 
-// MCP Connection Manager with StreamableHTTP transport
+// MCP Connection Manager with patched StreamableHTTP transport
 class MCP_ConnectionManager {
   // State tracking
   private client: Client | null = null;
-  private transport: StreamableHTTPClientTransport | null = null;
+  private transport: any = null; // Using any for compatibility with our patched transport
   private isConnected = false;
   private connecting = false;
   private connectPromise: Promise<any> | null = null;
@@ -53,8 +54,8 @@ class MCP_ConnectionManager {
     // Create client
     this.client = new Client({ name: clientId, version: "1.0.0" });
     
-    // Create StreamableHTTP transport
-    this.transport = new StreamableHTTPClientTransport(
+    // Create patched StreamableHTTP transport
+    this.transport = createPatchedStreamableHTTPTransport(
       new URL(this.MCP_ENDPOINT),
       {
         // Add proper headers to ensure compatibility
@@ -75,7 +76,7 @@ class MCP_ConnectionManager {
     );
     
     // Set up error handler to get notified of transport issues
-    this.transport.onerror = (error) => {
+    this.transport.onerror = (error: any) => {
       console.error('MCP transport error:', error);
       const errorMsg = String(error);
       
