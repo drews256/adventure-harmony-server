@@ -71,5 +71,7 @@ export function getRelevantCategories(context: ConversationContext): string[] {
 export async function getRelevantTools(job: ConversationJob, goGuideClient: GoGuideAPIClient): Promise<any[]> {
   const context = determineConversationContext(job.conversation_history);
   const categories = getRelevantCategories(context);
-  return goGuideClient.getTools(categories);
+  
+  // Pass the profile_id to get profile-specific tools
+  return goGuideClient.getTools(categories, job.profile_id);
 }

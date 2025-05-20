@@ -11,7 +11,8 @@ interface PipelineStep {
  */
 export async function executeToolPipeline(
   mcpClient: any,
-  steps: PipelineStep[]
+  steps: PipelineStep[],
+  profileId?: string
 ): Promise<any[]> {
   const results: any[] = [];
   
@@ -22,13 +23,16 @@ export async function executeToolPipeline(
         ? step.args(results) 
         : step.args;
       
+      // Include profileId in arguments if provided
+      const argsWithProfile = profileId ? { ...args, profileId } : args;
+      
       // Execute tool call with caching
       const result = await cachedToolCall(
         step.toolName, 
-        args, 
+        argsWithProfile, 
         () => mcpClient.callTool({
           name: step.toolName,
-          arguments: args,
+          arguments: argsWithProfile,
           tool_result: []
         })
       );
