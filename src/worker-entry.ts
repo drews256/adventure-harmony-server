@@ -171,7 +171,7 @@ class MCP_ConnectionManager {
               return this.client;
             } catch (pingError) {
               console.error('Connection verification failed, transport not ready:', pingError);
-              throw new Error('Transport not ready: ' + pingError.message);
+              throw new Error('Transport not ready: ' + (pingError instanceof Error ? pingError.message : String(pingError)));
             }
           } else {
             throw connError;
@@ -285,7 +285,7 @@ class MCP_ConnectionManager {
                 // Reset and try again
                 await this.reset();
                 this.createNewConnection();
-                throw new Error('Transport not ready in getClient: ' + pingError.message);
+                throw new Error('Transport not ready in getClient: ' + (pingError instanceof Error ? pingError.message : String(pingError)));
               }
             }
             

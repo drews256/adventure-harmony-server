@@ -158,7 +158,7 @@ export class GoGuideAPIClient {
         
         // If this is the last retry, throw the error
         if (retryCount >= maxRetries) {
-          throw new Error(`Failed to list tools after ${maxRetries} attempts: ${error.message}`);
+          throw new Error(`Failed to list tools after ${maxRetries} attempts: ${error instanceof Error ? error.message : String(error)}`);
         }
         
         // Wait before retrying
@@ -217,7 +217,7 @@ export class GoGuideAPIClient {
         
         // If this is the last retry, throw the error
         if (retryCount >= maxRetries) {
-          throw new Error(`Failed to call tool ${tool.name} after ${maxRetries} attempts: ${error.message}`);
+          throw new Error(`Failed to call tool ${tool.name} after ${maxRetries} attempts: ${error instanceof Error ? error.message : String(error)}`);
         }
         
         // Wait before retrying

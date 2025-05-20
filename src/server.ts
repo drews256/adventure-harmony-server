@@ -56,7 +56,7 @@ async function ensureMcpConnection() {
     mcpClient = null;
     
     // Throw the error to be handled by the caller
-    throw new Error(`Failed to connect to MCP server: ${error.message}`);
+    throw new Error(`Failed to connect to MCP server: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
