@@ -39,7 +39,7 @@ export class GoGuideAPIClient {
     console.log(`MCP server returned ${toolsResult.tools.length} tools`);
     
     // Log a sample of tool names
-    const sampleTools = toolsResult.tools.slice(0, 5).map(t => t.name);
+    const sampleTools = toolsResult.tools.slice(0, 5).map((t: MCPTool) => t.name);
     console.log(`Sample tools from MCP: ${JSON.stringify(sampleTools)}`);
     
     if (!categories || categories.length === 0) {
@@ -94,7 +94,7 @@ export class GoGuideAPIClient {
       id: tool.id || 'unknown',
       name: tool.name,
       arguments: argsWithProfile,
-      tool_result: []
+      tool_result: [] as any[]
     });
   }
   
