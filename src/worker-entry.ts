@@ -94,13 +94,16 @@ class MCP_ConnectionManager {
         return this.client;
       } catch (error) {
         console.error("Error while waiting for existing connection:", error);
-        // Continue with a new connection
+        // Continue with a new connection after waiting a bit
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
     
     // Need a new connection
     if (!this.client || !this.transport) {
       this.createNewConnection();
+      // Wait a brief moment after creating a new connection
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
     
     // Set connecting state
@@ -116,13 +119,43 @@ class MCP_ConnectionManager {
           setTimeout(() => reject(new Error("Connection timeout exceeded")), 15000);
         });
         
-        // Connect the client to the transport
-        await Promise.race([
-          this.client!.connect(this.transport!),
-          timeoutPromise
-        ]);
+        // Delay briefly before actually connecting
+        await new Promise(resolve => setTimeout(resolve, 500));
         
-        // Connection successful
+        // Connect the client to the transport with careful error handling
+        try {
+          await Promise.race([
+            this.client!.connect(this.transport!).catch(e => {
+              // Wrap any connection error with more context
+              const msg = String(e);
+              if (msg.includes('already started')) {
+                throw new Error(`Transport already started: ${msg}`);
+              } else if (msg.includes('stream is not readable')) {
+                throw new Error(`Stream error during connection: ${msg}`);
+              } else {
+                throw e;
+              }
+            }),
+            timeoutPromise
+          ]);
+        } catch (connError) {
+          // Add better context to the error
+          const msg = String(connError);
+          if (msg.includes('already started')) {
+            throw new Error(`Transport already started during connection`);
+          } else if (msg.includes('stream is not readable')) {
+            throw new Error(`Stream not readable during connection`);
+          } else if (msg.includes('timeout')) {
+            throw new Error(`Connection timed out`);
+          } else {
+            throw connError;
+          }
+        }
+        
+        // Connection successful - add a brief delay to let it stabilize
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Mark as connected
         this.isConnected = true;
         this.connectionAttempts = 0;
         console.log("Successfully connected to MCP server");
@@ -195,35 +228,66 @@ class MCP_ConnectionManager {
   // Public API
   async getClient() {
     try {
-      return await this.connectInternal();
+      return await withRetry(
+        async () => {
+          try {
+            return await this.connectInternal();
+          } catch (error) {
+            // Handle specific errors that require special attention
+            const errorMsg = String(error);
+            
+            if (errorMsg.includes('already started')) {
+              // Complete reset for the already started error
+              console.error("Detected 'already started' error, resetting connection");
+              await this.reset();
+              this.createNewConnection();
+              // Don't retry immediately - throw to let the retry logic handle it
+              throw new Error("Connection reset due to 'already started' error");
+            }
+            
+            if (errorMsg.includes('stream is not readable') || 
+                errorMsg.includes('Error POSTing') ||
+                errorMsg.includes('InternalServerError')) {
+              // For stream errors, reset and throw to retry
+              console.error("Detected stream error, resetting connection");
+              await this.reset();
+              this.createNewConnection();
+              throw new Error("Connection reset due to stream error");
+            }
+            
+            // For other errors, just propagate
+            throw error;
+          }
+        },
+        {
+          maxRetries: 3,
+          initialDelay: 2000,  // Start with a longer delay
+          backoffFactor: 2,    // Increase delay between retries
+          maxDelay: 10000,     // Cap at 10 seconds
+          retryableErrors: [
+            'already started', 
+            'stream is not readable', 
+            'Error POSTing', 
+            'Connection reset',
+            'InternalServerError',
+            'timeout',
+            'network error'
+          ]
+        }
+      );
     } catch (error) {
-      if (String(error).includes('already started')) {
-        // If we get the "already started" error, reset and try again
-        console.error("Detected 'already started' error, resetting connection");
-        await this.reset();
-        // Create a fresh connection
-        this.createNewConnection();
-        // And try to connect again
-        return await this.connectInternal();
-      }
+      console.error("All connection attempts failed:", error);
       throw error;
     }
   }
   
   async checkHealth() {
-    // If not connected, try to connect
-    if (!this.isConnected || !this.client) {
-      try {
-        await this.getClient();
-      } catch (error) {
-        console.error("Health check: cannot connect", error);
-        return false;
-      }
-    }
-    
-    // Check if the connection is working
     try {
-      await this.client!.listTools();
+      // Try to get client with retries - this handles connection issues
+      const client = await this.getClient();
+      
+      // Check if the connection is working
+      await client.listTools();
       console.log("MCP connection health check: OK");
       return true;
     } catch (error) {
