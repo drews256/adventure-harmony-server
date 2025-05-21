@@ -25,6 +25,8 @@ export class GoGuideAPIClient {
   
   /**
    * Get available tools from MCP server, filtered by categories
+   * 
+   * Following MCP spec for tool listing with proper parameter passing
    */
   async getTools(categories?: string[], profileId?: string): Promise<MCPTool[]> {
     console.log(`Getting tools with${profileId ? ' profile ID: ' + profileId : 'out profile ID'}`);
@@ -37,11 +39,27 @@ export class GoGuideAPIClient {
     
     while (retryCount < maxRetries) {
       try {
-        // Include profileId in the request to get profile-specific tools
-        const listToolsOptions = profileId ? { profileId } : undefined;
+        // Prepare options according to MCP spec
+        // The profileId should be sent in a standard context parameter structure
+        const listToolsOptions: any = {};
+        
+        // Add profileId in the standard context structure if available
+        if (profileId) {
+          listToolsOptions.context = {
+            profileId: profileId,
+            // Add any other context parameters as needed
+          };
+        }
+        
+        // Add category filtering if specified
+        if (categories && categories.length > 0) {
+          listToolsOptions.filter = {
+            categories: categories
+          };
+        }
         
         // Make the request to list tools
-        console.log(`Listing tools (attempt ${retryCount + 1}/${maxRetries})...`);
+        console.log(`Listing tools with options: ${JSON.stringify(listToolsOptions)}`);
         const toolsResult = await this.mcpClient.listTools(listToolsOptions);
         
         console.log(`MCP server returned ${toolsResult.tools.length} tools`);
@@ -54,10 +72,13 @@ export class GoGuideAPIClient {
           console.log(`No tools returned from MCP server`);
         }
         
+        // If no categories specified or we already included category filtering in the request,
+        // return all tools from the result
         if (!categories || categories.length === 0) {
           return toolsResult.tools;
         }
         
+        // If server doesn't support category filtering, do it client-side
         // Filter tools by category
         const filteredTools = toolsResult.tools.filter((tool: MCPTool) => {
           // Check if the tool belongs to any of the requested categories
@@ -89,19 +110,28 @@ export class GoGuideAPIClient {
         const errorStr = String(error);
         if (errorStr.includes('Not connected') || 
             errorStr.includes('Connection error') ||
-            errorStr.includes('stream is not readable')) {
-          console.log('Detected connection error, trying to reset connection...');
+            errorStr.includes('stream is not readable') ||
+            errorStr.includes('ECONNRESET') ||
+            errorStr.includes('ECONNREFUSED') ||
+            errorStr.includes('status code 400')) {
+          console.log('Detected connection error, allowing reconnection to handle it...');
           
-          // Try to reset the connection if available
-          try {
-            // Check if there's a resetMcpClient function
-            const workerModule = await import('../worker-entry');
-            if (workerModule && typeof workerModule.resetMcpClient === 'function') {
-              await workerModule.resetMcpClient();
-              console.log('Connection reset successfully');
+          // We'll let the built-in reconnection handle most issues
+          // Only explicitly reset on critical failures
+          if (errorStr.includes('Maximum reconnection attempts exceeded') ||
+              errorStr.includes('Failed to reconnect')) {
+            console.log('Critical connection failure, explicitly resetting connection...');
+            
+            // Try to reset the connection if available
+            try {
+              const workerModule = await import('../worker-entry');
+              if (workerModule && typeof workerModule.resetMcpClient === 'function') {
+                await workerModule.resetMcpClient();
+                console.log('Connection reset successfully');
+              }
+            } catch (resetError) {
+              console.error('Failed to reset connection:', resetError);
             }
-          } catch (resetError) {
-            console.error('Failed to reset connection:', resetError);
           }
         }
       }
@@ -113,6 +143,8 @@ export class GoGuideAPIClient {
   
   /**
    * Call a specific tool directly with simplified interface
+   * 
+   * Following MCP spec for tool calling with proper context parameter structure
    */
   async callTool(toolName: string, args: Record<string, unknown>, profileId?: string): Promise<any> {
     // Log the profile ID information
@@ -129,9 +161,17 @@ export class GoGuideAPIClient {
     // First, try to get the tool with retries
     while (retryCount < maxRetries && !tool) {
       try {
-        // Get the tool by name - pass profileId when listing tools as well
-        const toolsOptions = profileId ? { profileId } : undefined;
-        console.log(`Listing tools for tool lookup (attempt ${retryCount + 1}/${maxRetries})...`);
+        // Get the tool by name - pass profileId properly in context structure
+        const toolsOptions: any = {};
+        
+        // Add profileId in the standard context structure if available
+        if (profileId) {
+          toolsOptions.context = {
+            profileId: profileId
+          };
+        }
+        
+        console.log(`Listing tools for tool lookup with options: ${JSON.stringify(toolsOptions)}`);
         const toolsResult = await this.mcpClient.listTools(toolsOptions);
         
         console.log(`Found ${toolsResult.tools.length} tools available`);
@@ -166,23 +206,26 @@ export class GoGuideAPIClient {
         console.log(`Waiting ${delay}ms before tool lookup retry ${retryCount + 1}...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         
-        // Check if it's a connection error
+        // Handle connection errors by letting built-in reconnection work
         const errorStr = String(error);
         if (errorStr.includes('Not connected') || 
             errorStr.includes('Connection error') ||
-            errorStr.includes('stream is not readable')) {
-          console.log('Detected connection error during tool lookup, trying to reset connection...');
+            errorStr.includes('stream is not readable') ||
+            errorStr.includes('status code 400')) {
+          console.log('Detected connection error during tool lookup, allowing reconnection...');
           
-          // Try to reset the connection if available
-          try {
-            // Check if there's a resetMcpClient function
-            const workerModule = await import('../worker-entry');
-            if (workerModule && typeof workerModule.resetMcpClient === 'function') {
-              await workerModule.resetMcpClient();
-              console.log('Connection reset successfully during tool lookup');
+          // Only reset on critical failures
+          if (errorStr.includes('Maximum reconnection attempts exceeded') ||
+              errorStr.includes('Failed to reconnect')) {
+            try {
+              const workerModule = await import('../worker-entry');
+              if (workerModule && typeof workerModule.resetMcpClient === 'function') {
+                await workerModule.resetMcpClient();
+                console.log('Connection reset successfully during tool lookup');
+              }
+            } catch (resetError) {
+              console.error('Failed to reset connection during tool lookup:', resetError);
             }
-          } catch (resetError) {
-            console.error('Failed to reset connection during tool lookup:', resetError);
           }
         }
       }
@@ -192,10 +235,23 @@ export class GoGuideAPIClient {
       throw new Error(`Tool not found: ${toolName}`);
     }
     
-    // Include profileId in arguments if provided
-    const argsWithProfile = profileId ? { ...args, profileId } : args;
+    // Prepare arguments according to MCP spec
+    // Create a new object that follows the MCP specification
+    const enhancedArgs: any = { ...args };
     
-    console.log(`Executing tool ${tool.name} (ID: ${tool.id || 'unknown'}) with profileId: ${profileId || 'none'}`);
+    // If profileId is provided, add it in the correct context structure
+    // rather than directly in the arguments
+    if (profileId) {
+      // Don't directly include profileId in arguments
+      // Instead use the context pattern according to MCP spec
+      if (enhancedArgs.context) {
+        enhancedArgs.context.profileId = profileId;
+      } else {
+        enhancedArgs.context = { profileId };
+      }
+    }
+    
+    console.log(`Executing tool ${tool.name} (ID: ${tool.id || 'unknown'}) with profile context: ${profileId || 'none'}`);
     
     // Reset retry counter for tool execution
     retryCount = 0;
@@ -203,13 +259,13 @@ export class GoGuideAPIClient {
     // Now try to call the tool with retries
     while (retryCount < maxRetries) {
       try {
-        // Call the tool with provided arguments
+        // Call the tool with structured arguments following MCP spec
         console.log(`Calling tool ${tool.name} (attempt ${retryCount + 1}/${maxRetries})...`);
         return await this.mcpClient.callTool({
-          id: tool.id || 'unknown',
+          id: tool.id || undefined, // Use undefined instead of 'unknown'
           name: tool.name,
-          arguments: argsWithProfile,
-          tool_result: [] as any[]
+          arguments: enhancedArgs,
+          tool_result: [] // Empty tool_result array as specified in MCP
         });
       } catch (error) {
         retryCount++;
@@ -225,23 +281,26 @@ export class GoGuideAPIClient {
         console.log(`Waiting ${delay}ms before tool call retry ${retryCount + 1}...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         
-        // Check if it's a connection error
+        // Handle connection errors
         const errorStr = String(error);
         if (errorStr.includes('Not connected') || 
             errorStr.includes('Connection error') ||
-            errorStr.includes('stream is not readable')) {
-          console.log('Detected connection error during tool call, trying to reset connection...');
+            errorStr.includes('stream is not readable') ||
+            errorStr.includes('status code 400')) {
+          console.log('Detected connection error during tool call, allowing reconnection...');
           
-          // Try to reset the connection if available
-          try {
-            // Check if there's a resetMcpClient function
-            const workerModule = await import('../worker-entry');
-            if (workerModule && typeof workerModule.resetMcpClient === 'function') {
-              await workerModule.resetMcpClient();
-              console.log('Connection reset successfully during tool call');
+          // Only reset on critical failures
+          if (errorStr.includes('Maximum reconnection attempts exceeded') ||
+              errorStr.includes('Failed to reconnect')) {
+            try {
+              const workerModule = await import('../worker-entry');
+              if (workerModule && typeof workerModule.resetMcpClient === 'function') {
+                await workerModule.resetMcpClient();
+                console.log('Connection reset successfully during tool call');
+              }
+            } catch (resetError) {
+              console.error('Failed to reset connection during tool call:', resetError);
             }
-          } catch (resetError) {
-            console.error('Failed to reset connection during tool call:', resetError);
           }
         }
       }

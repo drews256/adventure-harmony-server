@@ -49,54 +49,73 @@ class MCP_ConnectionManager {
   private readonly MAX_ATTEMPTS = 3;
   private readonly MCP_ENDPOINT = "https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/mcp";
   
-  // Create a connection with StreamableHTTP transport
+  /**
+   * Create a new MCP connection following the protocol specification
+   */
   private createNewConnection() {
-    // Create a stable client ID that can be reused for reconnection
-    // This follows the spec for resumability - using a consistent client ID
-    const clientId = `goguide-mcp-client-${process.pid}`;
-    console.log(`Creating MCP client: ${clientId}`);
+    // Create a stable session identifier for reconnection/resumability
+    // Use an app-specific prefix plus a unique identifier
+    const sessionId = `goguide-${process.pid}-${Date.now()}`;
+    console.log(`Creating MCP client with session ID: ${sessionId}`);
     console.log(`Using MCP endpoint: ${this.MCP_ENDPOINT}`);
     
-    // Create client
-    this.client = new Client({ name: clientId, version: "1.0.0" });
+    // Create client with proper metadata according to MCP spec
+    this.client = new Client({ 
+      name: "GoGuide Client", 
+      version: "1.0.0",
+      // Set additional options per MCP spec
+      protocolVersion: "2025-03-26",
+      sessionId
+    });
     
-    // Configure improved reconnection options to better handle Heroku timeouts
+    // Configure transportConfig according to MCP specification
     const transportConfig = {
-      // Add proper headers
+      // HTTP request configuration for compatibility
       requestInit: {
         headers: {
+          // Proper headers for SSE transport
           'Accept': 'application/json, text/event-stream',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          // Session ID for resumability
+          'X-MCP-Session-ID': sessionId
         }
       },
-      // Configure more aggressive reconnection options
+      // Advanced reconnection options specified in MCP docs
       reconnectionOptions: {
         initialReconnectionDelay: 1000,        // Start with 1s delay
-        maxReconnectionDelay: 60000,           // Cap at 60s delay (1 minute)
+        maxReconnectionDelay: 60000,           // Cap at 60s (1 minute)
         reconnectionDelayGrowFactor: 1.3,      // Grow more slowly
-        maxRetries: 10,                        // More retries before giving up
-        jitter: 0.2                            // Add randomness to prevent thundering herd
+        maxRetries: 15,                        // More retries
+        jitter: 0.25,                          // Add randomness to prevent thundering herd
+        // MCP-specific options for resumability
+        useSessionId: true,                    // Use session ID for resumability
+        reconnectOnInitializeError: true,      // Retry if initialize fails
+        resumeAfterDisconnect: true            // Try to resume existing sessions
       }
     };
     
-    console.log(`Creating transport with improved reconnection settings`);
+    console.log(`Creating MCP transport with enhanced configuration`);
     
-    // Create the transport
+    // Create transport with enhanced configuration
     this.transport = createPatchedStreamableHTTPTransport(
       new URL(this.MCP_ENDPOINT),
       transportConfig
     );
     
-    // Set up minimal transport error handler
+    // Enhanced error handler with MCP-aware behavior
     this.transport.onerror = (error: any) => {
-      console.error('MCP transport error - transport will auto-reconnect:', error);
-      
-      // Only mark as disconnected for critical errors
       const errorMsg = String(error);
+      console.log(`MCP Transport error: ${errorMsg}`);
+      
+      // Let the transport's built-in reconnection handle most errors
+      // Only mark as disconnected for critical errors
       if (errorMsg.includes('Failed to reconnect') ||
-          errorMsg.includes('Maximum reconnection attempts exceeded')) {
-        console.error('Detected critical reconnection failure');
+          errorMsg.includes('Maximum reconnection attempts exceeded') ||
+          errorMsg.includes('Session expired')) {
+        console.error('Detected critical reconnection failure, connection will need reset');
         this.isConnected = false;
+      } else {
+        console.log('Non-critical error - built-in reconnection will handle it');
       }
     };
     
