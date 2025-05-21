@@ -665,6 +665,12 @@ function filterToolsByContent(allTools: any[], messageContent: string): any[] {
            toolDesc.includes('order') ||
            toolName.includes('supplier') ||
            toolDesc.includes('supplier') ||
+           toolName.includes('product') ||
+           toolDesc.includes('product') ||
+           toolName.includes('availability') ||
+           toolDesc.includes('availability') ||
+           toolName.includes('booking') ||
+           toolDesc.includes('booking') ||
            toolName.includes('search') ||
            toolDesc.includes('search') ||
            toolName.includes('token') ||
