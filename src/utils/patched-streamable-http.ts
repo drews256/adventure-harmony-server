@@ -28,9 +28,9 @@ export class PatchedStreamableHTTPClientTransport extends StreamableHTTPClientTr
   /**
    * Properly formatted MCP initialization message
    */
-  private createInitializeMessage(id: number) {
+  private createInitializeMessage(id: string | number) {
     return {
-      jsonrpc: "2.0",
+      jsonrpc: "2.0" as const,
       id,
       method: "initialize",
       params: {
@@ -55,7 +55,7 @@ export class PatchedStreamableHTTPClientTransport extends StreamableHTTPClientTr
    */
   private createInitializedNotification() {
     return {
-      jsonrpc: "2.0", 
+      jsonrpc: "2.0" as const, 
       method: "initialized",
       params: {}
     };
