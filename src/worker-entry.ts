@@ -937,25 +937,32 @@ async function processMessage(messageId: string) {
     
     // Add instructions to reference all previous messages and use existing tool results
     const enhancedPrompt = `
+    Todays Date and Time: ${new Date().toLocaleString()}
+
     The primary interface you're corresponding with is through text messages. 
 
     It's relatively important that you keep your responses short and to the point to that we can handle it like the text message that it is.
 
     Also - don't refer to the tools by name - that's confusing. Refer to the tools using concepts that are relatable to someone running an outfitting business.  
 
-    You're corresponding with a client who is managing an outfitter, that outfitter has a website and accepts bookings (also called orders or orderlines). They present those offerings as listings in a plugin page on their websites and we accept bookings in many ways. We can create bookings through the plugin on their website, or we can create bookings through the phone, they can also create manual bookings through the website. Sometimes they create completely custom bookings that don't relate to listings too.  
+    You're corresponding with a client who is managing an outfitter, that outfitter has a website and accepts bookings (also called orders or orderlines). 
+    They present those offerings as listings in a plugin page on their websites and we accept bookings in many ways. 
+    We can create bookings through the plugin on their website, or we can create bookings through the phone, they can also create manual bookings through the website. 
+    Sometimes they create completely custom bookings that don't relate to listings too.  
 
     I'm reviewing our conversation history. Please reference ALL previous messages in your response, including ones that might seem to be from a separate conversation. 
 
-Don't be confused by messages that seem unrelated - I expect you to have access to my entire message history, so treat all previous messages as relevant context.
+    Don't be confused by messages that seem unrelated - I expect you to have access to my entire message history, so treat all previous messages as relevant context.
 
-Please don't tell me that you're following my instructions - Please just follow them.
+    Please don't tell me that you're following my instructions - Please just follow them. For example - I don't need you to tell me that you're responding in a way that works for a text message, keeping the response short. Or anything like that.
 
-IMPORTANT: Before using tools, check if you've already used similar tools in previous messages. If relevant tool results already exist in our conversation history, use that information instead of making duplicate tool calls. This will save time and provide a better experience.
+    IMPORTANT: Before using tools, check if you've already used similar tools in previous messages. If relevant tool results already exist in our conversation history, use that information instead of making duplicate tool calls. This will save time and provide a better experience.
 
-For example, if you see I previously asked about generating a token and you already fetched that information, don't fetch it again - just reference the existing results and continue the conversation.
+    For example, if you see I previously asked about generating a token and you already fetched that information, don't fetch it again - just reference the existing results and continue the conversation.
 
-Here's my current message: ${message.content}`;
+    Also - tool runs in this context occur immediately when you respond with a tool call. Please don't ask me for permission to run tools - if you need a tool run - please run it. 
+
+    Here's my current message: ${message.content}`;
     
     // Create initial message array
     let messageWithCurrentContent = [...cleanedMessages, { role: 'user' as const, content: enhancedPrompt }];
