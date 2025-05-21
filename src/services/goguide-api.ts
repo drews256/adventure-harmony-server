@@ -239,15 +239,27 @@ export class GoGuideAPIClient {
     // Create a new object that follows the MCP specification
     const enhancedArgs: any = { ...args };
     
-    // If profileId is provided, add it in the correct context structure
-    // rather than directly in the arguments
+    // If profileId is provided, add it according to MCP server expectations
+    // MCP server expects {profileId: someId} directly, not wrapped in context
     if (profileId) {
-      // Don't directly include profileId in arguments
-      // Instead use the context pattern according to MCP spec
-      if (enhancedArgs.context) {
-        enhancedArgs.context.profileId = profileId;
+      // Check if there's already context provided in the arguments
+      if (enhancedArgs.context && typeof enhancedArgs.context === 'object') {
+        // We received {context: {profileId: someId}}, but MCP expects {profileId: someId}
+        // Extract profileId from context if it exists there
+        if (enhancedArgs.context.profileId) {
+          enhancedArgs.profileId = enhancedArgs.context.profileId;
+          delete enhancedArgs.context.profileId;
+          // If context is now empty, remove it
+          if (Object.keys(enhancedArgs.context).length === 0) {
+            delete enhancedArgs.context;
+          }
+        } else {
+          // Just add profileId directly at the top level
+          enhancedArgs.profileId = profileId;
+        }
       } else {
-        enhancedArgs.context = { profileId };
+        // No context object, just add profileId directly
+        enhancedArgs.profileId = profileId;
       }
     }
     

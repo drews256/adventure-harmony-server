@@ -279,10 +279,23 @@ export async function processToolCallsFromClaude(responseContent: any[],
       toolResult = await withRetry(
         async () => {
           try {
+            // Process arguments to handle profile_id context mismatch
+            const processedArgs = { ...block.input };
+            
+            // Extract profile_id if it's nested in context
+            if (processedArgs.context && typeof processedArgs.context === 'object' && processedArgs.context.profileId) {
+              processedArgs.profileId = processedArgs.context.profileId;
+              delete processedArgs.context.profileId;
+              // If context is now empty, remove it
+              if (Object.keys(processedArgs.context).length === 0) {
+                delete processedArgs.context;
+              }
+            }
+            
             return await mcp.callTool({
               id: block.id,
               name: block.name,
-              arguments: block.input,
+              arguments: processedArgs,
               tool_result: []
             });
           } catch (callError) {
