@@ -43,12 +43,9 @@ export class GoGuideAPIClient {
         // The profileId should be sent in a standard context parameter structure
         const listToolsOptions: any = {};
         
-        // Add profileId in the standard context structure if available
+        // Add profileId directly as expected by MCP server (not wrapped in context)
         if (profileId) {
-          listToolsOptions.context = {
-            profileId: profileId,
-            // Add any other context parameters as needed
-          };
+          listToolsOptions.profileId = profileId;
         }
         
         // Add category filtering if specified
@@ -164,11 +161,9 @@ export class GoGuideAPIClient {
         // Get the tool by name - pass profileId properly in context structure
         const toolsOptions: any = {};
         
-        // Add profileId in the standard context structure if available
+        // Add profileId directly as expected by MCP server (not wrapped in context)
         if (profileId) {
-          toolsOptions.context = {
-            profileId: profileId
-          };
+          toolsOptions.profileId = profileId;
         }
         
         console.log(`Listing tools for tool lookup with options: ${JSON.stringify(toolsOptions)}`);
