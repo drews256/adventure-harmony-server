@@ -227,64 +227,24 @@ class MCP_ConnectionManager {
           } else if (msg.includes('timeout')) {
             throw new Error(`Connection timed out`);
           } else if (msg.includes('Server already initialized')) {
-            console.log('Server reports it is already initialized, ensuring transport is actually connected...');
+            console.log('===== SERVER ALREADY INITIALIZED ERROR =====');
+            console.log('Received "Server already initialized" response - this indicates a stale connection state');
+            console.log('Performing forced reset instead of trying to verify connection');
             
-            // Even though the server is initialized, we need to make sure the transport is ready
-            try {
-              // Wait a short time for connections to stabilize
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              
-              // Try a simple ping to check if we can actually communicate
-              console.log(`Sending ping message to verify connection...`);
-              
-              // Capture fetch for this specific ping request
-              const originalFetch = global.fetch;
-              global.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
-                console.log(`PING FETCH REQUEST to ${typeof input === 'string' ? input : input.toString()}`);
-                console.log(`PING FETCH HEADERS: ${JSON.stringify(init?.headers || {})}`);
-                console.log(`PING FETCH BODY: ${init?.body || '[No body]'}`);
-                
-                try {
-                  const response = await originalFetch(input, init);
-                  
-                  // Clone the response for logging
-                  const clone = response.clone();
-                  
-                  console.log(`PING FETCH RESPONSE STATUS: ${response.status} ${response.statusText}`);
-                  
-                  try {
-                    const text = await clone.text();
-                    console.log(`PING FETCH RESPONSE BODY: ${text}`);
-                  } catch (e) {
-                    console.log(`PING FETCH RESPONSE BODY: [Could not read: ${e}]`);
-                  }
-                  
-                  return response;
-                } catch (error) {
-                  console.error(`PING FETCH ERROR: ${error}`);
-                  throw error;
-                }
-              };
-              
-              try {
-                await this.transport.send({
-                  jsonrpc: "2.0",
-                  method: "ping",
-                  params: {},
-                  id: Date.now()
-                });
-              } finally {
-                // Restore original fetch
-                global.fetch = originalFetch;
-              }
-              
-              console.log('Connection verified with ping, connection is active');
-              this.isConnected = true;
-              return this.client;
-            } catch (pingError) {
-              console.error('Connection verification failed, transport not ready:', pingError);
-              throw new Error('Transport not ready: ' + (pingError instanceof Error ? pingError.message : String(pingError)));
-            }
+            // Close everything and force a completely fresh connection
+            await this.reset();
+            
+            // Create a new connection from scratch
+            this.createNewConnection();
+            
+            // Wait a moment for the new connection setup to complete
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Throw specific error to trigger retry with the new client
+            console.log('Connection state fully reset, triggering retry with new client instance');
+            console.log('===== END SERVER ALREADY INITIALIZED HANDLING =====');
+            
+            throw new Error('Connection reset due to Server already initialized - retry with new client');
           } else {
             throw connError;
           }
@@ -325,34 +285,71 @@ class MCP_ConnectionManager {
   
   // Clean up the connection completely
   async reset() {
-    console.log("Resetting MCP connection");
+    console.log("===== AGGRESSIVE MCP CONNECTION RESET =====");
     
-    // Clean up existing instances
+    // Track reset status
+    let transportClosed = false;
+    let clientClosed = false;
+    
+    // Clean up existing instances with timeout protection
     if (this.client || this.transport) {
       try {
-        // Close the transport
+        // Create timeout promises to prevent hanging on close operations
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Connection close timeout exceeded")), 5000)
+        );
+        
+        // Close the transport with timeout protection
         if (this.transport) {
-          await this.transport.close();
+          console.log("Closing transport...");
+          try {
+            await Promise.race([
+              this.transport.close(),
+              timeoutPromise
+            ]);
+            transportClosed = true;
+            console.log("Transport closed successfully");
+          } catch (transportError) {
+            console.error("Error or timeout closing transport:", transportError);
+          }
         }
         
-        // Close the client
+        // Close the client with timeout protection
         if (this.client) {
-          await this.client.close();
+          console.log("Closing client...");
+          try {
+            await Promise.race([
+              this.client.close(),
+              timeoutPromise
+            ]);
+            clientClosed = true;
+            console.log("Client closed successfully");
+          } catch (clientError) {
+            console.error("Error or timeout closing client:", clientError);
+          }
         }
       } catch (error) {
         console.error("Error during connection cleanup:", error);
       }
     }
     
-    // Reset state
+    // Force garbage collection of client and transport by explicitly nullifying them
+    // This ensures complete disconnect regardless of close() success
     this.client = null;
     this.transport = null;
+    
+    // Reset all state variables
     this.isConnected = false;
     this.connecting = false;
     this.connectPromise = null;
     this.connectionAttempts = 0;
     
-    console.log("MCP connection reset complete");
+    // Brief delay to ensure network sockets have time to fully close
+    console.log("Waiting for network sockets to fully close...");
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    console.log(`Reset complete - Transport: ${transportClosed ? 'Closed' : 'Force terminated'}, Client: ${clientClosed ? 'Closed' : 'Force terminated'}`);
+    console.log("===== END AGGRESSIVE RESET =====");
   }
   
   // Public API with retry mechanism
@@ -374,77 +371,44 @@ class MCP_ConnectionManager {
             }
             
             if (errorMsg.includes('Server already initialized')) {
-              // This means the server is already connected, but we need to verify the connection
-              console.log("Server reports already initialized, verifying connection");
+              console.log('===== SERVER ALREADY INITIALIZED ERROR IN GET CLIENT =====');
+              console.log('Received "Server already initialized" error in getClient');
               
-              try {
-                // Wait a short time for connections to stabilize
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // Try a simple ping to check if we can actually communicate
-                console.log(`Sending ping message from getClient to verify connection...`);
-                
-                // Capture fetch for this specific ping request
-                const originalFetch = global.fetch;
-                global.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
-                  console.log(`GETCLIENT PING REQUEST to ${typeof input === 'string' ? input : input.toString()}`);
-                  console.log(`GETCLIENT PING HEADERS: ${JSON.stringify(init?.headers || {})}`);
-                  console.log(`GETCLIENT PING BODY: ${init?.body || '[No body]'}`);
-                  
-                  try {
-                    const response = await originalFetch(input, init);
-                    
-                    // Clone the response for logging
-                    const clone = response.clone();
-                    
-                    console.log(`GETCLIENT PING RESPONSE STATUS: ${response.status} ${response.statusText}`);
-                    
-                    try {
-                      const text = await clone.text();
-                      console.log(`GETCLIENT PING RESPONSE BODY: ${text}`);
-                    } catch (e) {
-                      console.log(`GETCLIENT PING RESPONSE BODY: [Could not read: ${e}]`);
-                    }
-                    
-                    return response;
-                  } catch (error) {
-                    console.error(`GETCLIENT PING FETCH ERROR: ${error}`);
-                    throw error;
-                  }
-                };
-                
-                try {
-                  await this.transport.send({
-                    jsonrpc: "2.0",
-                    method: "ping",
-                    params: {},
-                    id: Date.now()
-                  });
-                } finally {
-                  // Restore original fetch
-                  global.fetch = originalFetch;
-                }
-                
-                console.log('Connection verified with ping in getClient, connection is active');
-                this.isConnected = true;
-                return this.client;
-              } catch (pingError) {
-                console.error('Connection verification failed in getClient, transport not ready:', pingError);
-                // Reset and try again
-                await this.reset();
-                this.createNewConnection();
-                throw new Error('Transport not ready in getClient: ' + (pingError instanceof Error ? pingError.message : String(pingError)));
-              }
+              // Perform aggressive reset to ensure clean state
+              await this.reset();
+              
+              // Create a completely new connection
+              this.createNewConnection();
+              
+              // Wait a moment for the new connection setup to complete
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
+              console.log('Connection fully reset, going to retry with new client instance');
+              console.log('===== END SERVER ALREADY INITIALIZED HANDLING IN GET CLIENT =====');
+              
+              // Throw error to trigger retry with the new connection
+              throw new Error('Connection reset due to Server already initialized - retry with new client');
             }
             
             if (errorMsg.includes('stream is not readable') || 
                 errorMsg.includes('Error POSTing') ||
-                errorMsg.includes('InternalServerError')) {
-              // Reset for stream-related errors
-              console.error("Detected stream error, resetting connection");
+                errorMsg.includes('InternalServerError') ||
+                errorMsg.includes('status code 400') ||
+                errorMsg.includes('Bad Request') ||
+                errorMsg.includes('400 Bad Request')) {
+              // Reset for stream-related errors or HTTP 400 errors
+              console.log('===== STREAM OR HTTP ERROR DETECTED =====');
+              console.error(`Detected transport error: ${errorMsg}`);
+              console.log('Performing aggressive connection reset...');
+              
+              // Perform full reset and recreate connection
               await this.reset();
               this.createNewConnection();
-              throw new Error("Connection reset due to stream error");
+              
+              console.log('Connection fully reset due to transport error');
+              console.log('===== END STREAM OR HTTP ERROR HANDLING =====');
+              
+              throw new Error(`Connection reset due to transport error: ${errorMsg.substring(0, 100)}`);
             }
             
             // For other errors, just propagate
@@ -457,14 +421,18 @@ class MCP_ConnectionManager {
           backoffFactor: 2,    
           maxDelay: 10000,     
           retryableErrors: [
-            'already started', 
+            'already started',
             'stream is not readable', 
             'Error POSTing', 
             'Connection reset',
             'InternalServerError',
             'timeout',
             'network error',
-            'Server already initialized'
+            'Server already initialized',
+            'status code 400',
+            'Bad Request',
+            '400 Bad Request',
+            'transport error'
           ]
         }
       );
@@ -1337,9 +1305,23 @@ async function workerLoop() {
       if (errorStr.includes('stream is not readable') ||
           errorStr.includes('Error POSTing to endpoint') ||
           errorStr.includes('SSE error') ||
-          errorStr.includes('Connection timeout')) {
-        console.error('Detected SSE connection error in worker loop, resetting MCP client');
+          errorStr.includes('Connection timeout') ||
+          errorStr.includes('status code 400') ||
+          errorStr.includes('Bad Request') ||
+          errorStr.includes('400 Bad Request') ||
+          errorStr.includes('Server already initialized')) {
+        console.error('===== TRANSPORT ERROR IN WORKER LOOP =====');
+        console.error(`Detected transport error in worker loop: ${errorStr}`);
+        console.log('Performing aggressive reset of MCP client...');
+        
+        // Fully reset the MCP client
         await resetMcpClient();
+        
+        // Wait a moment to ensure sockets are fully closed
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        console.log('MCP client fully reset after transport error');
+        console.log('===== END TRANSPORT ERROR HANDLING =====');
       }
       
       // Add 30-second delay on error to prevent rapid retries
