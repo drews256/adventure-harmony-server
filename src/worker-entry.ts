@@ -49,78 +49,54 @@ class MCP_ConnectionManager {
   private readonly MAX_ATTEMPTS = 3;
   private readonly MCP_ENDPOINT = "https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/mcp";
   
-  // Create a completely new connection with StreamableHTTP transport
+  // Create a connection with StreamableHTTP transport
   private createNewConnection() {
-    // Always create completely new instances to avoid issues
-    const clientId = `streamable-http-client-${Date.now()}`;
-    console.log(`Creating new MCP client: ${clientId}`);
+    // Create a stable client ID that can be reused for reconnection
+    // This follows the spec for resumability - using a consistent client ID
+    const clientId = `goguide-mcp-client-${process.pid}`;
+    console.log(`Creating MCP client: ${clientId}`);
     console.log(`Using MCP endpoint: ${this.MCP_ENDPOINT}`);
     
     // Create client
     this.client = new Client({ name: clientId, version: "1.0.0" });
     
-    // Log detailed client configuration
-    console.log(`Client configuration: ${JSON.stringify({
-      name: clientId,
-      version: "1.0.0"
-    })}`);
-    
-    // Create patched StreamableHTTP transport with detailed logging
+    // Configure improved reconnection options to better handle Heroku timeouts
     const transportConfig = {
-      // Add proper headers to ensure compatibility
+      // Add proper headers
       requestInit: {
         headers: {
           'Accept': 'application/json, text/event-stream',
           'Content-Type': 'application/json'
-        },
-        // Add additional debugging details
-        credentials: 'same-origin',
-        mode: 'cors'
+        }
       },
-      // Configure reconnection options
+      // Configure more aggressive reconnection options
       reconnectionOptions: {
-        initialReconnectionDelay: 1000,
-        maxReconnectionDelay: 30000,
-        reconnectionDelayGrowFactor: 1.5,
-        maxRetries: 2
+        initialReconnectionDelay: 1000,        // Start with 1s delay
+        maxReconnectionDelay: 60000,           // Cap at 60s delay (1 minute)
+        reconnectionDelayGrowFactor: 1.3,      // Grow more slowly
+        maxRetries: 10,                        // More retries before giving up
+        jitter: 0.2                            // Add randomness to prevent thundering herd
       }
     };
     
-    console.log(`Creating transport with config: ${JSON.stringify(transportConfig)}`);
+    console.log(`Creating transport with improved reconnection settings`);
     
+    // Create the transport
     this.transport = createPatchedStreamableHTTPTransport(
       new URL(this.MCP_ENDPOINT),
       transportConfig
     );
     
-    // Add request logging to show exactly what's being sent
-    const originalSend = this.transport.send;
-    this.transport.send = async (message: any, options?: any) => {
-      console.log(`TRANSPORT SEND: ${JSON.stringify(message)}`);
-      if (options) {
-        console.log(`TRANSPORT OPTIONS: ${JSON.stringify(options)}`);
-      }
-      try {
-        const result = await originalSend.call(this.transport, message, options);
-        console.log(`TRANSPORT SEND SUCCESS`);
-        return result;
-      } catch (error) {
-        console.error(`TRANSPORT SEND ERROR: ${error instanceof Error ? error.message : String(error)}`);
-        console.error(`Full error details: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
-        throw error;
-      }
-    };
-    
-    // Set up error handler to get notified of transport issues
+    // Set up minimal transport error handler
     this.transport.onerror = (error: any) => {
-      console.error('MCP transport error:', error);
-      const errorMsg = String(error);
+      console.error('MCP transport error - transport will auto-reconnect:', error);
       
-      if (errorMsg.includes('stream is not readable') || 
-          errorMsg.includes('Error POSTing to endpoint') ||
-          errorMsg.includes('Failed to reconnect')) {
-        console.error('Detected critical transport error');
-        this.isConnected = false;  // Mark as disconnected
+      // Only mark as disconnected for critical errors
+      const errorMsg = String(error);
+      if (errorMsg.includes('Failed to reconnect') ||
+          errorMsg.includes('Maximum reconnection attempts exceeded')) {
+        console.error('Detected critical reconnection failure');
+        this.isConnected = false;
       }
     };
     
@@ -283,73 +259,65 @@ class MCP_ConnectionManager {
     }
   }
   
-  // Clean up the connection completely
+  // Reset the connection, but in a more controlled way
   async reset() {
-    console.log("===== AGGRESSIVE MCP CONNECTION RESET =====");
+    console.log("===== MCP CONNECTION RESET =====");
     
-    // Track reset status
-    let transportClosed = false;
-    let clientClosed = false;
-    
-    // Clean up existing instances with timeout protection
+    // Only perform a forced close if we have a client or transport
     if (this.client || this.transport) {
       try {
-        // Create timeout promises to prevent hanging on close operations
+        // Give a short timeout to close operations
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Connection close timeout exceeded")), 5000)
+          setTimeout(() => reject(new Error("Connection close timeout exceeded")), 3000)
         );
         
-        // Close the transport with timeout protection
+        // Close the transport
         if (this.transport) {
-          console.log("Closing transport...");
+          console.log("Gracefully closing transport...");
           try {
             await Promise.race([
               this.transport.close(),
               timeoutPromise
             ]);
-            transportClosed = true;
             console.log("Transport closed successfully");
           } catch (transportError) {
-            console.error("Error or timeout closing transport:", transportError);
+            console.error("Non-critical error closing transport:", transportError);
           }
         }
         
-        // Close the client with timeout protection
+        // Close the client
         if (this.client) {
-          console.log("Closing client...");
+          console.log("Gracefully closing client...");
           try {
             await Promise.race([
               this.client.close(),
               timeoutPromise
             ]);
-            clientClosed = true;
             console.log("Client closed successfully");
           } catch (clientError) {
-            console.error("Error or timeout closing client:", clientError);
+            console.error("Non-critical error closing client:", clientError);
           }
         }
       } catch (error) {
-        console.error("Error during connection cleanup:", error);
+        console.error("Error during connection cleanup (non-critical):", error);
       }
     }
     
-    // Force garbage collection of client and transport by explicitly nullifying them
-    // This ensures complete disconnect regardless of close() success
-    this.client = null;
-    this.transport = null;
-    
-    // Reset all state variables
+    // Reset state variables
     this.isConnected = false;
     this.connecting = false;
     this.connectPromise = null;
     this.connectionAttempts = 0;
     
-    // Brief delay to ensure network sockets have time to fully close
-    console.log("Waiting for network sockets to fully close...");
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Clear references to allow garbage collection
+    this.client = null;
+    this.transport = null;
     
-    console.log(`Reset complete - Transport: ${transportClosed ? 'Closed' : 'Force terminated'}, Client: ${clientClosed ? 'Closed' : 'Force terminated'}`);
-    console.log("===== END AGGRESSIVE RESET =====");
+    // Brief pause before allowing reconnection
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    console.log("Connection reset complete - ready for reconnection");
+    console.log("===== END MCP CONNECTION RESET =====");
   }
   
   // Public API with retry mechanism
@@ -442,60 +410,42 @@ class MCP_ConnectionManager {
     }
   }
   
-  // Health check with proper error handling
+  // Simple health check that verifies connection exists
   async checkHealth() {
+    console.log("Performing MCP connection status check");
+    
     try {
-      console.log("===== PERFORMING MCP HEALTH CHECK =====");
-      
-      // If we don't have a client or transport yet, create them
-      if (!this.client || !this.transport) {
-        console.log("No active connection, creating new connection for health check");
-        this.createNewConnection();
-        await new Promise(resolve => setTimeout(resolve, 500));
+      // If we don't have a client, establish one - this will trigger auto-reconnect if needed
+      if (!this.client) {
+        console.log("No active client, establishing connection");
+        await this.getClient();
       }
       
-      // Use a simpler approach - just test if we can get a client
-      console.log("Testing if MCP client can be established");
+      // If we're connected, that's enough for a health check
+      if (this.isConnected && this.client) {
+        console.log("MCP connection is active");
+        return true;
+      }
+      
+      // Try to get a client, which will verify the connection works
       const client = await this.getClient();
       
-      // Check if client was successfully created
+      // If we got a client, mark as healthy
       if (client) {
-        // Use a safer way to ping - call a method that doesn't require parameters
-        try {
-          console.log("MCP client established, testing connection with ping");
-          if (this.transport) {
-            const pingId = Date.now();
-            const pingResponse = await this.transport.send({
-              jsonrpc: "2.0",
-              method: "ping",
-              params: {},
-              id: pingId
-            });
-            console.log(`Health check ping response: ${JSON.stringify(pingResponse)}`);
-          } else {
-            console.log("Transport not available, but client connection succeeded");
-          }
-        } catch (pingError) {
-          // Even if ping fails, if we got a client, the connection is working
-          console.log(`Ping failed but client connection succeeded: ${pingError}`);
-        }
-        
-        console.log("MCP connection health check: OK");
-        console.log("===== MCP HEALTH CHECK COMPLETED =====");
+        this.isConnected = true;
+        console.log("MCP connection verified");
         return true;
-      } else {
-        throw new Error("Failed to establish MCP client during health check");
       }
+      
+      // Shouldn't reach here due to the getClient() behavior
+      console.warn("MCP connection check inconclusive");
+      return false;
     } catch (error) {
-      console.error("===== MCP HEALTH CHECK FAILED =====");
-      console.error(`MCP health check failed: ${error instanceof Error ? error.message : String(error)}`);
-      console.log("Performing connection reset after health check failure");
-      
-      // Reset the connection on health check failure
+      // Only log the error - transport will handle reconnection automatically
+      console.error(`MCP connection check failed: ${error instanceof Error ? error.message : String(error)}`);
       this.isConnected = false;
-      await this.reset();
       
-      console.log("===== MCP HEALTH CHECK RECOVERY COMPLETED =====");
+      // Trigger a new connection attempt next time
       return false;
     }
   }
