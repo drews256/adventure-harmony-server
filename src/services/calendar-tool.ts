@@ -507,7 +507,7 @@ export class CalendarTool {
       }
       
       // Return the hosted URLs
-      const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+      const baseUrl = process.env.BASE_URL || 'https://adventure-harmony-09bcd11c3365.herokuapp.com';
       return {
         url: `${baseUrl}/calendar/${calendarId}`,
         icalUrl: `${baseUrl}/calendar/${calendarId}/ical`,
