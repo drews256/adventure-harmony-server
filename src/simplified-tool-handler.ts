@@ -292,6 +292,21 @@ export async function processToolCallsFromClaude(responseContent: any[],
         const { HelpTool } = await import('./services/help-tool');
         const helpTool = new HelpTool(supabase);
         toolResult = await helpTool.createHelpRequest(block.input);
+      } else if (block.name === 'FormGenerator_CreateForm') {
+        console.log('Handling form generator tool locally');
+        const { FormGenerator } = await import('./services/form-generator');
+        const formGenerator = new FormGenerator(supabase);
+        toolResult = await formGenerator.createForm(block.input);
+      } else if (block.name === 'SMS_SendFormLink') {
+        console.log('Handling SMS form link tool locally');
+        const { SMSTool } = await import('./services/sms-tool');
+        const smsTool = new SMSTool(supabase);
+        toolResult = await smsTool.sendFormLink(
+          block.input.phoneNumber,
+          block.input.formUrl,
+          block.input.formTitle,
+          block.input.businessName
+        );
       } else {
         // Use withRetry for more comprehensive retry handling with exponential backoff for MCP tools
         toolResult = await withRetry(

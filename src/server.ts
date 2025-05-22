@@ -264,6 +264,91 @@ app.get('/help/:helpId', async (req, res) => {
   }
 });
 
+// Form endpoints
+app.get('/form/:formId', async (req, res) => {
+  try {
+    const { formId } = req.params;
+    
+    const { FormGenerator } = await import('./services/form-generator');
+    const formGenerator = new FormGenerator(supabase);
+    const html = await formGenerator.getFormHTML(formId);
+    
+    if (!html) {
+      return res.status(404).send('Form not found or expired');
+    }
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    console.error('Error retrieving form:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+// Form submission endpoint
+app.post('/api/form-submit', async (req, res) => {
+  try {
+    const { formId, data } = req.body;
+    
+    if (!formId || !data) {
+      return res.status(400).json({ error: 'Missing formId or data' });
+    }
+    
+    // Get form details for context
+    const { data: form, error: formError } = await supabase
+      .from('dynamic_forms')
+      .select('*')
+      .eq('id', formId)
+      .single();
+    
+    if (formError || !form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+    
+    // Check if form is still active and not expired
+    if (form.status !== 'active') {
+      return res.status(400).json({ error: 'Form is no longer active' });
+    }
+    
+    if (form.expires_at && new Date(form.expires_at) < new Date()) {
+      return res.status(400).json({ error: 'Form has expired' });
+    }
+    
+    // Store form response
+    const responseId = `response_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+    
+    const { error: responseError } = await supabase
+      .from('form_responses')
+      .insert({
+        id: responseId,
+        form_id: formId,
+        response_data: data,
+        process_as_message_to_profile_id: form.originating_profile_id,
+        parent_conversation_thread_id: form.conversation_thread_id,
+        submitted_at: new Date().toISOString()
+      });
+    
+    if (responseError) {
+      console.error('Error storing form response:', responseError);
+      return res.status(500).json({ error: 'Failed to store response' });
+    }
+    
+    // Update form status to submitted
+    await supabase
+      .from('dynamic_forms')
+      .update({ status: 'submitted', updated_at: new Date().toISOString() })
+      .eq('id', formId);
+    
+    res.json({ success: true, message: 'Form submitted successfully' });
+    
+  } catch (error) {
+    console.error('Error processing form submission:', error);
+    res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Internal server error' 
+    });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 }); 

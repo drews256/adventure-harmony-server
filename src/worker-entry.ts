@@ -940,10 +940,15 @@ async function processMessage(messageId: string) {
     const { CalendarTool } = await import('./services/calendar-tool');
     const { EventFormatter } = await import('./services/event-formatter');
     const { HelpTool } = await import('./services/help-tool');
+    const { FormGenerator } = await import('./services/form-generator');
     
     const calendarToolDef = CalendarTool.getToolDefinition();
     const eventFormatterDef = EventFormatter.getToolDefinition();
     const helpToolDef = HelpTool.getToolDefinition();
+    const formGeneratorDef = FormGenerator.getToolDefinition();
+    const { SMSTool } = await import('./services/sms-tool');
+    const smsToolDef = SMSTool.getToolDefinition();
+    const smsFormLinkToolDef = SMSTool.getFormLinkToolDefinition();
     
     tools.push({
       name: calendarToolDef.name,
@@ -961,6 +966,24 @@ async function processMessage(messageId: string) {
       name: helpToolDef.name,
       description: helpToolDef.description,
       input_schema: helpToolDef.inputSchema
+    });
+    
+    tools.push({
+      name: formGeneratorDef.name,
+      description: formGeneratorDef.description,
+      input_schema: formGeneratorDef.inputSchema
+    });
+    
+    tools.push({
+      name: smsToolDef.name,
+      description: smsToolDef.description,
+      input_schema: smsToolDef.inputSchema
+    });
+    
+    tools.push({
+      name: smsFormLinkToolDef.name,
+      description: smsFormLinkToolDef.description,
+      input_schema: smsFormLinkToolDef.inputSchema
     });
 
     // Validate and fix conversation history before cleaning
@@ -1317,6 +1340,95 @@ ${enhancedPrompt}`;
 // Function checkMcpHealth is already defined earlier in the file
 
 // Main worker loop
+// Form processing function to handle submitted form responses
+// Form processing function to handle submitted form responses
+async function processFormResponse(responseId: string) {
+  try {
+    console.log(`Processing form response: ${responseId}`);
+    
+    // Get the form response
+    const { data: response, error: responseError } = await supabase
+      .from('form_responses')
+      .select('*')
+      .eq('id', responseId)
+      .single();
+
+    if (responseError) throw responseError;
+
+    // Check if already processed
+    if (response.processed) {
+      console.log(`Form response ${responseId} already processed, skipping`);
+      return;
+    }
+
+    // Get the form details for context
+    const { data: form, error: formError } = await supabase
+      .from('dynamic_forms')
+      .select('*')
+      .eq('id', response.form_id)
+      .single();
+
+    if (formError) throw formError;
+
+    // Format the form data for Claude
+    const formattedResponse = Object.entries(response.response_data)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n');
+
+    // Create a message content that includes form context
+    const messageContent = `Form "${form.form_type}" has been submitted with the following information:
+
+${formattedResponse}
+
+Customer Phone: ${form.customer_phone || 'Not provided'}
+Form Title: ${form.form_title || 'Untitled Form'}
+
+Please process this form submission and continue the conversation.`;
+
+    // Create a new conversation message for processing
+    const { data: newMessage, error: messageError } = await supabase
+      .from('conversation_messages')
+      .insert({
+        profile_id: response.process_as_message_to_profile_id,
+        phone_number: form.customer_phone,
+        direction: 'incoming',
+        content: messageContent,
+        parent_message_id: form.originating_message_id,
+        conversation_thread_id: response.parent_conversation_thread_id,
+        form_response_id: responseId,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (messageError) throw messageError;
+
+    // Update form response to mark as processed
+    await supabase
+      .from('form_responses')
+      .update({ 
+        processed: true,
+        processed_at: new Date().toISOString(),
+        processing_message_id: newMessage.id
+      })
+      .eq('id', responseId);
+
+    console.log(`Form response ${responseId} processed successfully, created message ${newMessage.id}`);
+
+  } catch (error) {
+    console.error(`Error processing form response ${responseId}:`, error);
+    
+    // Update with error info
+    await supabase
+      .from('form_responses')
+      .update({ 
+        processing_error: error instanceof Error ? error.message : 'Unknown error'
+      })
+      .eq('id', responseId);
+  }
+}
+
+// Main worker loop
 async function workerLoop() {
   // Use a local counter for health checks
   let healthCheckCounter = 0;
@@ -1346,6 +1458,21 @@ async function workerLoop() {
       }
 
       if (pendingMessages && pendingMessages.length > 0) {
+      
+      // Also check for pending form responses
+      const { data: pendingFormResponses, error: formError } = await supabase
+        .from('form_responses')
+        .select('id')
+        .eq('processed', false)
+        .order('submitted_at', { ascending: true })
+        .limit(1);
+
+      if (formError) {
+        console.error('Error fetching pending form responses:', formError);
+      } else if (pendingFormResponses && pendingFormResponses.length > 0) {
+        const formResponse = pendingFormResponses[0];
+        await processFormResponse(formResponse.id);
+      }
         const message = pendingMessages[0];
         await processMessage(message.id);
       }
