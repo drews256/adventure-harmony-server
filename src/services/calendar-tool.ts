@@ -264,6 +264,77 @@ export class CalendarTool {
             color: var(--text-primary);
             line-height: 1.6;
             min-height: 100vh;
+            opacity: 0;
+            animation: fadeInPage 0.8s ease-out forwards;
+        }
+        
+        @keyframes fadeInPage {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes slideInFromTop {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes slideInFromBottom {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        @keyframes shimmer {
+            0% {
+                background-position: -200px 0;
+            }
+            100% {
+                background-position: calc(200px + 100%) 0;
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.7;
+            }
+        }
+        
+        @keyframes ripple {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
         }
         
         .header {
@@ -273,6 +344,7 @@ export class CalendarTool {
             text-align: center;
             position: relative;
             overflow: hidden;
+            animation: slideInFromTop 0.6s ease-out;
         }
         
         .header::before {
@@ -308,6 +380,14 @@ export class CalendarTool {
             box-shadow: var(--shadow-large);
             overflow: hidden;
             border: 1px solid var(--border-color);
+            animation: scaleIn 0.7s ease-out 0.2s both;
+        }
+        
+        .loading-skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200px 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 4px;
         }
         
         #calendar {
@@ -343,14 +423,40 @@ export class CalendarTool {
             padding: 0.5rem 1rem !important;
             font-weight: 500 !important;
             border-radius: 8px !important;
-            transition: all 0.2s ease !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
             font-size: 0.875rem !important;
             box-shadow: var(--shadow-light) !important;
+            position: relative !important;
+            overflow: hidden !important;
         }
         
         .fc-button:hover {
-            transform: translateY(-1px);
+            transform: translateY(-2px) !important;
             box-shadow: var(--shadow-medium) !important;
+        }
+        
+        .fc-button:active {
+            transform: translateY(0) !important;
+            transition: all 0.1s ease !important;
+        }
+        
+        .fc-button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.3s ease, height 0.3s ease;
+        }
+        
+        .fc-button:active::before {
+            width: 300px;
+            height: 300px;
+            animation: ripple 0.6s ease-out;
         }
         
         .fc-button-primary {
@@ -373,12 +479,27 @@ export class CalendarTool {
         
         .fc-daygrid-day {
             background: white;
-            transition: background-color 0.2s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
         }
         
         .fc-daygrid-day:hover {
             background-color: rgba(37, 99, 235, 0.02);
+            transform: scale(1.02);
         }
+        
+        .fc-daygrid-day-frame {
+            opacity: 0;
+            animation: slideInFromBottom 0.5s ease-out forwards;
+        }
+        
+        .fc-daygrid-day:nth-child(1) .fc-daygrid-day-frame { animation-delay: 0.05s; }
+        .fc-daygrid-day:nth-child(2) .fc-daygrid-day-frame { animation-delay: 0.1s; }
+        .fc-daygrid-day:nth-child(3) .fc-daygrid-day-frame { animation-delay: 0.15s; }
+        .fc-daygrid-day:nth-child(4) .fc-daygrid-day-frame { animation-delay: 0.2s; }
+        .fc-daygrid-day:nth-child(5) .fc-daygrid-day-frame { animation-delay: 0.25s; }
+        .fc-daygrid-day:nth-child(6) .fc-daygrid-day-frame { animation-delay: 0.3s; }
+        .fc-daygrid-day:nth-child(7) .fc-daygrid-day-frame { animation-delay: 0.35s; }
         
         .fc-daygrid-day-number {
             font-weight: 600;
@@ -413,13 +534,37 @@ export class CalendarTool {
             background: linear-gradient(135deg, var(--accent-color), #059669) !important;
             color: white !important;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
-            transition: all 0.2s ease !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
             cursor: pointer !important;
+            opacity: 0 !important;
+            animation: scaleIn 0.4s ease-out forwards !important;
+            position: relative !important;
+            overflow: hidden !important;
         }
         
         .fc-daygrid-event:hover {
-            transform: translateY(-1px) !important;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
+            transform: translateY(-2px) scale(1.02) !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+        }
+        
+        .fc-daygrid-event:active {
+            transform: translateY(0) scale(0.98) !important;
+            transition: all 0.1s ease !important;
+        }
+        
+        .fc-daygrid-event::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .fc-daygrid-event:hover::before {
+            left: 100%;
         }
         
         .fc-daygrid-event-dot {
@@ -432,21 +577,66 @@ export class CalendarTool {
             border: 1px solid var(--border-color) !important;
             background: white !important;
             box-shadow: var(--shadow-light) !important;
+            overflow: hidden !important;
+            opacity: 0 !important;
+            animation: slideInFromBottom 0.5s ease-out forwards !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
         
         .fc-list-event:hover {
             box-shadow: var(--shadow-medium) !important;
-            transform: translateY(-1px);
+            transform: translateY(-2px) scale(1.01) !important;
+            border-color: var(--primary-color) !important;
+        }
+        
+        .fc-list-event:nth-child(1) { animation-delay: 0.1s !important; }
+        .fc-list-event:nth-child(2) { animation-delay: 0.2s !important; }
+        .fc-list-event:nth-child(3) { animation-delay: 0.3s !important; }
+        .fc-list-event:nth-child(4) { animation-delay: 0.4s !important; }
+        .fc-list-event:nth-child(5) { animation-delay: 0.5s !important; }
+        
+        .fc-list-event-graphic {
+            background: linear-gradient(135deg, var(--accent-color), #059669) !important;
+            width: 4px !important;
         }
         
         .fc-list-event-title {
             font-weight: 600 !important;
             color: var(--text-primary) !important;
+            padding: 0.75rem !important;
         }
         
         .fc-list-event-time {
             color: var(--text-secondary) !important;
             font-weight: 500 !important;
+            padding: 0.5rem 0.75rem !important;
+            background: var(--secondary-color) !important;
+        }
+        
+        .fc-list-day-cushion {
+            background: var(--secondary-color) !important;
+            color: var(--text-primary) !important;
+            font-weight: 600 !important;
+            padding: 0.75rem !important;
+            border-bottom: 1px solid var(--border-color) !important;
+        }
+        
+        .fc-list-table {
+            border: none !important;
+        }
+        
+        .fc-list-event-dot {
+            display: none !important;
+        }
+        
+        .fc-list-day-side-text {
+            color: var(--text-primary) !important;
+            font-weight: 600 !important;
+        }
+        
+        .fc-list-day-text {
+            color: var(--text-secondary) !important;
+            font-size: 0.875rem !important;
         }
         
         .refresh-hint {
@@ -459,6 +649,13 @@ export class CalendarTool {
             border-radius: 0 0 16px 16px;
             border-top: 1px solid var(--border-color);
             backdrop-filter: blur(10px);
+            animation: slideInFromBottom 0.6s ease-out 0.4s both;
+            transition: all 0.3s ease;
+        }
+        
+        .refresh-hint:hover {
+            background: rgba(255, 255, 255, 0.9);
+            transform: translateY(-1px);
         }
         
         /* Mobile Responsiveness */
@@ -590,6 +787,23 @@ export class CalendarTool {
         document.addEventListener('DOMContentLoaded', function() {
             var calendarEl = document.getElementById('calendar');
             
+            // Add loading animation
+            calendarEl.innerHTML = \`
+                <div style="display: flex; justify-content: center; align-items: center; height: 300px; flex-direction: column;">
+                    <div style="width: 40px; height: 40px; border: 3px solid var(--border-color); border-top: 3px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 1rem;"></div>
+                    <div style="color: var(--text-secondary); font-size: 0.875rem;">Loading calendar...</div>
+                </div>
+                <style>
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                </style>
+            \`;
+            
+            // Simulate loading delay for smooth animations
+            setTimeout(function() {
+            
             // Prepare events data for FullCalendar
             var events = ${JSON.stringify(upcomingEvents.map(event => {
               const startDate = typeof event.start === 'string' ? new Date(event.start) : event.start;
@@ -631,15 +845,37 @@ export class CalendarTool {
             
             calendar.render();
             
-            // Switch to list view on very small screens
+            // Add stagger animation to events after render
+            setTimeout(function() {
+                const events = document.querySelectorAll('.fc-daygrid-event');
+                events.forEach((event, index) => {
+                    event.style.animationDelay = (index * 0.05) + 's';
+                });
+                
+                const listEvents = document.querySelectorAll('.fc-list-event');
+                listEvents.forEach((event, index) => {
+                    event.style.animationDelay = (index * 0.1) + 's';
+                });
+            }, 100);
+            
+            // Switch to list view on very small screens with animation
             function checkScreenSize() {
                 if (window.innerWidth < 480 && calendar.view.type !== 'listWeek') {
-                    calendar.changeView('listWeek');
+                    calendarEl.style.opacity = '0';
+                    calendarEl.style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        calendar.changeView('listWeek');
+                        calendarEl.style.transition = 'all 0.3s ease';
+                        calendarEl.style.opacity = '1';
+                        calendarEl.style.transform = 'scale(1)';
+                    }, 150);
                 }
             }
             
             window.addEventListener('resize', checkScreenSize);
             checkScreenSize();
+            
+            }, 800); // End of loading delay
         });
         
         // Add pull-to-refresh functionality
