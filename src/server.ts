@@ -243,6 +243,27 @@ app.get('/calendar/:calendarId/ical', async (req, res) => {
   }
 });
 
+// Help request endpoints
+app.get('/help/:helpId', async (req, res) => {
+  try {
+    const { helpId } = req.params;
+    
+    const { HelpTool } = await import('./services/help-tool');
+    const helpTool = new HelpTool(supabase);
+    const html = await helpTool.getHelpRequestHTML(helpId);
+    
+    if (!html) {
+      return res.status(404).send('Help request not found');
+    }
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    console.error('Error retrieving help request:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 }); 

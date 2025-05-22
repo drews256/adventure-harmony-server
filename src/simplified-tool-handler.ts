@@ -287,6 +287,11 @@ export async function processToolCallsFromClaude(responseContent: any[],
         const { EventFormatter } = await import('./services/event-formatter');
         const eventFormatter = new EventFormatter();
         toolResult = await eventFormatter.formatEvents(block.input);
+      } else if (block.name === 'HelpMe_CreateRequest') {
+        console.log('Handling help request tool locally');
+        const { HelpTool } = await import('./services/help-tool');
+        const helpTool = new HelpTool(supabase);
+        toolResult = await helpTool.createHelpRequest(block.input);
       } else {
         // Use withRetry for more comprehensive retry handling with exponential backoff for MCP tools
         toolResult = await withRetry(

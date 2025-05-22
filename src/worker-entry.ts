@@ -936,12 +936,14 @@ async function processMessage(messageId: string) {
       input_schema: tool.inputSchema,
     })));
     
-    // Add local calendar tools
+    // Add local tools
     const { CalendarTool } = await import('./services/calendar-tool');
     const { EventFormatter } = await import('./services/event-formatter');
+    const { HelpTool } = await import('./services/help-tool');
     
     const calendarToolDef = CalendarTool.getToolDefinition();
     const eventFormatterDef = EventFormatter.getToolDefinition();
+    const helpToolDef = HelpTool.getToolDefinition();
     
     tools.push({
       name: calendarToolDef.name,
@@ -953,6 +955,12 @@ async function processMessage(messageId: string) {
       name: eventFormatterDef.name,
       description: eventFormatterDef.description,
       input_schema: eventFormatterDef.inputSchema
+    });
+    
+    tools.push({
+      name: helpToolDef.name,
+      description: helpToolDef.description,
+      input_schema: helpToolDef.inputSchema
     });
 
     // Validate and fix conversation history before cleaning
