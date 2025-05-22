@@ -477,18 +477,30 @@ export class CalendarTool {
       // Store HTML and iCal in database with unique ID
       const calendarId = Math.random().toString(36).substr(2, 12);
       
-      const { error } = await this.supabase
-        .from('calendar_displays')
-        .insert({
-          id: calendarId,
-          title: args.title || 'Calendar',
-          ical_url: null, // No longer using external iCal URL
-          ical_content: icalContent,
-          html_content: html,
-          event_count: args.events.length,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
+      // First, check if the ical_content column exists
+      let insertData: any = {
+        id: calendarId,
+        title: args.title || 'Calendar',
+        ical_url: null, // No longer using external iCal URL
+        html_content: html,
+        event_count: args.events.length,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // Try to include ical_content, but handle gracefully if column doesn't exist
+      try {
+        insertData.ical_content = icalContent;
+        var { error } = await this.supabase
+          .from('calendar_displays')
+          .insert(insertData);
+      } catch (schemaError) {
+        console.warn('ical_content column may not exist, inserting without it:', schemaError);
+        delete insertData.ical_content;
+        var { error } = await this.supabase
+          .from('calendar_displays')
+          .insert(insertData);
+      }
       
       if (error) {
         throw new Error(`Failed to store calendar: ${error.message}`);
@@ -544,10 +556,11 @@ export class CalendarTool {
         return null;
       }
       
-      return data.ical_content;
+      return data.ical_content || null;
     } catch (error) {
       console.error('Error fetching calendar iCal:', error);
-      return null;
+      // If ical_content column doesn't exist, return a basic iCal
+      return 'BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Adventure Harmony Planner//Calendar//EN\nEND:VCALENDAR';
     }
   }
 
