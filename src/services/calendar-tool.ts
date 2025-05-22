@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { MCPTool } from './goguide-api';
+import { StandardizedEvent } from './event-formatter';
 
 export interface CalendarEvent {
   id: string;
@@ -12,7 +13,7 @@ export interface CalendarEvent {
 }
 
 export interface CalendarToolArgs {
-  icalUrl: string;
+  events: StandardizedEvent[];
   title?: string;
   timezone?: string;
 }
@@ -77,6 +78,91 @@ export class CalendarTool {
     }
 
     return events.sort((a, b) => a.start.getTime() - b.start.getTime());
+  }
+
+  /**
+   * Generate iCal content from standardized events
+   */
+  private generateICalContent(events: StandardizedEvent[], title: string = 'Calendar'): string {
+    const now = new Date();
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Adventure Harmony Planner//Calendar//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      `X-WR-CALNAME:${title}`,
+      'X-WR-TIMEZONE:America/New_York'
+    ];
+
+    for (const event of events) {
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:${event.id}`);
+      lines.push(`DTSTAMP:${this.formatICalDate(now)}`);
+      lines.push(`DTSTART${event.allDay ? ';VALUE=DATE' : ''}:${this.formatICalDate(event.start, event.allDay)}`);
+      lines.push(`DTEND${event.allDay ? ';VALUE=DATE' : ''}:${this.formatICalDate(event.end, event.allDay)}`);
+      lines.push(`SUMMARY:${this.escapeICalText(event.title)}`);
+      
+      if (event.description) {
+        lines.push(`DESCRIPTION:${this.escapeICalText(event.description)}`);
+      }
+      
+      if (event.location) {
+        lines.push(`LOCATION:${this.escapeICalText(event.location)}`);
+      }
+      
+      lines.push('END:VEVENT');
+    }
+
+    lines.push('END:VCALENDAR');
+    return lines.join('\r\n');
+  }
+
+  /**
+   * Format a Date object to iCal format
+   */
+  private formatICalDate(date: Date, allDay: boolean = false): string {
+    if (allDay) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}${month}${day}`;
+    } else {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hour = String(date.getHours()).padStart(2, '0');
+      const minute = String(date.getMinutes()).padStart(2, '0');
+      const second = String(date.getSeconds()).padStart(2, '0');
+      return `${year}${month}${day}T${hour}${minute}${second}Z`;
+    }
+  }
+
+  /**
+   * Escape text for iCal format
+   */
+  private escapeICalText(text: string): string {
+    return text
+      .replace(/\\/g, '\\\\')
+      .replace(/;/g, '\\;')
+      .replace(/,/g, '\\,')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '');
+  }
+
+  /**
+   * Convert StandardizedEvent to CalendarEvent for compatibility
+   */
+  private convertToCalendarEvent(event: StandardizedEvent): CalendarEvent {
+    return {
+      id: event.id,
+      title: event.title,
+      start: event.start,
+      end: event.end,
+      description: event.description,
+      location: event.location,
+      allDay: event.allDay
+    };
   }
 
   /**
@@ -370,20 +456,20 @@ export class CalendarTool {
   }
 
   /**
-   * Create calendar from iCal URL and return hosted link
+   * Create calendar from standardized events and return hosted link with iCal download
    */
-  async createCalendar(args: CalendarToolArgs): Promise<{ url: string; eventCount: number }> {
+  async createCalendar(args: CalendarToolArgs): Promise<{ url: string; icalUrl: string; eventCount: number }> {
     try {
-      // Fetch iCal content
-      const icalContent = await this.fetchICalContent(args.icalUrl);
+      // Convert StandardizedEvents to CalendarEvents for HTML generation
+      const calendarEvents = args.events.map(event => this.convertToCalendarEvent(event));
       
-      // Parse events
-      const events = this.parseICalContent(icalContent);
+      // Generate iCal content
+      const icalContent = this.generateICalContent(args.events, args.title || 'Calendar');
       
       // Generate HTML
-      const html = this.generateMobileCalendarHTML(events, args.title || 'Calendar');
+      const html = this.generateMobileCalendarHTML(calendarEvents, args.title || 'Calendar');
       
-      // Store HTML in database with unique ID
+      // Store HTML and iCal in database with unique ID
       const calendarId = Math.random().toString(36).substr(2, 12);
       
       const { error } = await this.supabase
@@ -391,9 +477,10 @@ export class CalendarTool {
         .insert({
           id: calendarId,
           title: args.title || 'Calendar',
-          ical_url: args.icalUrl,
+          ical_url: null, // No longer using external iCal URL
+          ical_content: icalContent,
           html_content: html,
-          event_count: events.length,
+          event_count: args.events.length,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
@@ -402,11 +489,12 @@ export class CalendarTool {
         throw new Error(`Failed to store calendar: ${error.message}`);
       }
       
-      // Return the hosted URL
+      // Return the hosted URLs
       const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
       return {
         url: `${baseUrl}/calendar/${calendarId}`,
-        eventCount: events.length
+        icalUrl: `${baseUrl}/calendar/${calendarId}/ical`,
+        eventCount: args.events.length
       };
       
     } catch (error) {
@@ -437,18 +525,54 @@ export class CalendarTool {
   }
 
   /**
+   * Get calendar iCal content by ID
+   */
+  async getCalendarICal(calendarId: string): Promise<string | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('calendar_displays')
+        .select('ical_content')
+        .eq('id', calendarId)
+        .single();
+      
+      if (error || !data) {
+        return null;
+      }
+      
+      return data.ical_content;
+    } catch (error) {
+      console.error('Error fetching calendar iCal:', error);
+      return null;
+    }
+  }
+
+  /**
    * Get MCP tool definition
    */
   static getToolDefinition(): MCPTool {
     return {
-      name: 'Calendar_DisplayMobileCalendar',
-      description: 'Creates a mobile-optimized calendar view from an iCal URL and returns a link to the hosted calendar',
+      name: 'Calendar_GenerateDisplay',
+      description: 'Creates a mobile-optimized calendar view from standardized event data, generates iCal content, and returns hosted links',
       inputSchema: {
         type: 'object',
         properties: {
-          icalUrl: {
-            type: 'string',
-            description: 'URL to the iCal (.ics) file to display'
+          events: {
+            type: 'array',
+            description: 'Array of standardized event objects (typically from Calendar_FormatEvents tool)',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'Unique event identifier' },
+                title: { type: 'string', description: 'Event title' },
+                start: { type: 'string', description: 'Start date/time as ISO string' },
+                end: { type: 'string', description: 'End date/time as ISO string' },
+                description: { type: 'string', description: 'Optional event description' },
+                location: { type: 'string', description: 'Optional event location' },
+                allDay: { type: 'boolean', description: 'Whether this is an all-day event' },
+                timezone: { type: 'string', description: 'Optional timezone for this event' }
+              },
+              required: ['id', 'title', 'start', 'end', 'allDay']
+            }
           },
           title: {
             type: 'string',
@@ -456,10 +580,10 @@ export class CalendarTool {
           },
           timezone: {
             type: 'string',
-            description: 'Optional timezone for event display (defaults to local)'
+            description: 'Optional default timezone for the calendar'
           }
         },
-        required: ['icalUrl']
+        required: ['events']
       }
     };
   }

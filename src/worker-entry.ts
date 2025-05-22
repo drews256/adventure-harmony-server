@@ -936,12 +936,23 @@ async function processMessage(messageId: string) {
       input_schema: tool.inputSchema,
     })));
     
-    // Add local calendar tool
+    // Add local calendar tools
+    const { CalendarTool } = await import('./services/calendar-tool');
+    const { EventFormatter } = await import('./services/event-formatter');
+    
     const calendarToolDef = CalendarTool.getToolDefinition();
+    const eventFormatterDef = EventFormatter.getToolDefinition();
+    
     tools.push({
       name: calendarToolDef.name,
       description: calendarToolDef.description,
       input_schema: calendarToolDef.inputSchema
+    });
+    
+    tools.push({
+      name: eventFormatterDef.name,
+      description: eventFormatterDef.description,
+      input_schema: eventFormatterDef.inputSchema
     });
 
     // Validate and fix conversation history before cleaning

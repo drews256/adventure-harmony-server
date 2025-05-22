@@ -276,11 +276,17 @@ export async function processToolCallsFromClaude(responseContent: any[],
       // Execute the tool call with enhanced retry logic and better error handling
       let toolResult;
       
-      // Check if this is a calendar tool call - handle locally
-      if (block.name === 'Calendar_DisplayMobileCalendar') {
-        console.log('Handling calendar tool locally');
+      // Check if this is a local tool call - handle locally
+      if (block.name === 'Calendar_GenerateDisplay') {
+        console.log('Handling calendar generation tool locally');
+        const { CalendarTool } = await import('./services/calendar-tool');
         const calendarTool = new CalendarTool(supabase);
         toolResult = await calendarTool.createCalendar(block.input);
+      } else if (block.name === 'Calendar_FormatEvents') {
+        console.log('Handling event formatter tool locally');
+        const { EventFormatter } = await import('./services/event-formatter');
+        const eventFormatter = new EventFormatter();
+        toolResult = await eventFormatter.formatEvents(block.input);
       } else {
         // Use withRetry for more comprehensive retry handling with exponential backoff for MCP tools
         toolResult = await withRetry(

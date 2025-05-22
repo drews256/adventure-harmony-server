@@ -182,17 +182,17 @@ app.post('/process-message', async (req, res) => {
   }
 });
 
-// Calendar endpoints
+// Calendar endpoints (legacy endpoint for backward compatibility)
 app.post('/create-calendar', async (req, res) => {
   try {
-    const { icalUrl, title, timezone } = req.body;
+    const { events, title, timezone } = req.body;
     
-    if (!icalUrl) {
-      return res.status(400).json({ error: 'icalUrl is required' });
+    if (!events || !Array.isArray(events)) {
+      return res.status(400).json({ error: 'events array is required' });
     }
     
     const result = await calendarTool.createCalendar({
-      icalUrl,
+      events,
       title,
       timezone
     });
@@ -220,6 +220,25 @@ app.get('/calendar/:calendarId', async (req, res) => {
     res.send(html);
   } catch (error) {
     console.error('Error retrieving calendar:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+app.get('/calendar/:calendarId/ical', async (req, res) => {
+  try {
+    const { calendarId } = req.params;
+    
+    const icalContent = await calendarTool.getCalendarICal(calendarId);
+    
+    if (!icalContent) {
+      return res.status(404).send('Calendar not found');
+    }
+    
+    res.setHeader('Content-Type', 'text/calendar');
+    res.setHeader('Content-Disposition', `attachment; filename="calendar.ics"`);
+    res.send(icalContent);
+  } catch (error) {
+    console.error('Error retrieving calendar iCal:', error);
     res.status(500).send('Internal server error');
   }
 });
