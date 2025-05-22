@@ -221,7 +221,15 @@ export class CalendarTool {
    */
   private generateMobileCalendarHTML(events: CalendarEvent[], title: string = 'Calendar'): string {
     const now = new Date();
-    const upcomingEvents = events.filter(event => event.start >= now).slice(0, 50); // Limit to 50 upcoming events
+    // Handle both Date objects and string dates for filtering
+    // Temporarily show all events for debugging
+    const upcomingEvents = events.slice(0, 50); // Show all events, limit to 50
+    
+    // Original upcoming filter (commented out for debugging):
+    // const upcomingEvents = events.filter(event => {
+    //   const eventDate = typeof event.start === 'string' ? new Date(event.start) : event.start;
+    //   return eventDate >= now;
+    // }).slice(0, 50);
     
     return `<!DOCTYPE html>
 <html lang="en">
@@ -229,6 +237,7 @@ export class CalendarTool {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${title}</title>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js'></script>
     <style>
         * {
             margin: 0;
@@ -260,68 +269,42 @@ export class CalendarTool {
             max-width: 100%;
             margin: 0 auto;
             padding: 1rem;
-        }
-        
-        .event-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-        
-        .event-card {
             background: white;
             border-radius: 12px;
-            padding: 1rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            border-left: 4px solid #667eea;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: 1rem;
         }
         
-        .event-card:active {
-            transform: scale(0.98);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        #calendar {
+            max-width: 100%;
+            margin: 0 auto;
         }
         
-        .event-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: #1d1d1f;
-        }
-        
-        .event-time {
-            font-size: 0.9rem;
-            color: #667eea;
-            font-weight: 500;
-            margin-bottom: 0.25rem;
-        }
-        
-        .event-details {
+        /* FullCalendar mobile optimizations */
+        .fc {
             font-size: 0.85rem;
-            color: #6e6e73;
-            margin-top: 0.5rem;
         }
         
-        .event-location {
-            color: #8e8e93;
-            font-style: italic;
+        .fc-header-toolbar {
+            flex-direction: column;
+            gap: 0.5rem;
         }
         
-        .all-day-badge {
-            background: #34c759;
-            color: white;
-            padding: 0.2rem 0.5rem;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            font-weight: 500;
-            display: inline-block;
-            margin-left: 0.5rem;
+        .fc-toolbar-chunk {
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
-        .no-events {
-            text-align: center;
-            padding: 2rem;
-            color: #8e8e93;
+        .fc-button {
+            padding: 0.3rem 0.6rem;
+            font-size: 0.8rem;
+        }
+        
+        .fc-daygrid-event {
+            font-size: 0.75rem;
+            border-radius: 4px;
+            padding: 2px 4px;
         }
         
         .refresh-hint {
@@ -329,23 +312,46 @@ export class CalendarTool {
             padding: 1rem;
             color: #8e8e93;
             font-size: 0.8rem;
+            background: #f5f5f7;
+            margin-top: 1rem;
+            border-radius: 8px;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                margin: 0.5rem;
+                padding: 0.5rem;
+            }
+            
+            .fc-header-toolbar {
+                font-size: 0.8rem;
+            }
+            
+            .fc-daygrid-day-number {
+                font-size: 0.8rem;
+            }
+            
+            /* Hide some buttons on very small screens */
+            .fc-today-button {
+                display: none;
+            }
         }
         
         @media (max-width: 480px) {
-            .container {
-                padding: 0.75rem;
-            }
-            
-            .event-card {
-                padding: 0.75rem;
-            }
-            
             .header {
                 padding: 0.75rem;
             }
             
             .header h1 {
                 font-size: 1.3rem;
+            }
+            
+            .fc {
+                font-size: 0.75rem;
+            }
+            
+            .fc-daygrid-event {
+                font-size: 0.7rem;
             }
         }
     </style>
@@ -356,24 +362,7 @@ export class CalendarTool {
     </div>
     
     <div class="container">
-        <div class="event-list">
-            ${upcomingEvents.length === 0 ? 
-                '<div class="no-events">No upcoming events found</div>' :
-                upcomingEvents.map(event => `
-                <div class="event-card">
-                    <div class="event-title">
-                        ${this.escapeHtml(event.title)}
-                        ${event.allDay ? '<span class="all-day-badge">All Day</span>' : ''}
-                    </div>
-                    <div class="event-time">
-                        ${this.formatEventTime(event)}
-                    </div>
-                    ${event.location ? `<div class="event-location">📍 ${this.escapeHtml(event.location)}</div>` : ''}
-                    ${event.description ? `<div class="event-details">${this.escapeHtml(event.description).substring(0, 200)}${event.description.length > 200 ? '...' : ''}</div>` : ''}
-                </div>
-                `).join('')
-            }
-        </div>
+        <div id="calendar"></div>
         
         <div class="refresh-hint">
             Pull down to refresh • ${events.length} total events
@@ -381,6 +370,61 @@ export class CalendarTool {
     </div>
     
     <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var calendarEl = document.getElementById('calendar');
+            
+            // Prepare events data for FullCalendar
+            var events = ${JSON.stringify(upcomingEvents.map(event => {
+              const startDate = typeof event.start === 'string' ? new Date(event.start) : event.start;
+              const endDate = typeof event.end === 'string' ? new Date(event.end) : event.end;
+              return {
+                title: event.title,
+                start: startDate.toISOString(),
+                end: endDate.toISOString(),
+                allDay: event.allDay,
+                extendedProps: {
+                  description: event.description,
+                  location: event.location
+                }
+              };
+            }))};
+            
+            var calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth',
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: window.innerWidth < 768 ? 'listWeek,dayGridMonth' : 'dayGridMonth,listWeek'
+                },
+                events: events,
+                eventDisplay: 'block',
+                dayMaxEvents: 3,
+                moreLinkClick: 'popover',
+                eventClick: function(info) {
+                    // Show event details
+                    var props = info.event.extendedProps;
+                    var details = info.event.title;
+                    if (props.location) details += '\\n📍 ' + props.location;
+                    if (props.description) details += '\\n\\n' + props.description;
+                    alert(details);
+                },
+                height: 'auto',
+                responsive: true
+            });
+            
+            calendar.render();
+            
+            // Switch to list view on very small screens
+            function checkScreenSize() {
+                if (window.innerWidth < 480 && calendar.view.type !== 'listWeek') {
+                    calendar.changeView('listWeek');
+                }
+            }
+            
+            window.addEventListener('resize', checkScreenSize);
+            checkScreenSize();
+        });
+        
         // Add pull-to-refresh functionality
         let startY = 0;
         let isRefreshing = false;
@@ -412,7 +456,11 @@ export class CalendarTool {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
-    const eventDate = new Date(event.start.getFullYear(), event.start.getMonth(), event.start.getDate());
+    
+    // Handle both Date objects and string dates
+    const startDate = typeof event.start === 'string' ? new Date(event.start) : event.start;
+    const endDate = typeof event.end === 'string' ? new Date(event.end) : event.end;
+    const eventDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
     
     let datePrefix = '';
     if (eventDate.getTime() === today.getTime()) {
@@ -420,7 +468,7 @@ export class CalendarTool {
     } else if (eventDate.getTime() === tomorrow.getTime()) {
       datePrefix = 'Tomorrow, ';
     } else {
-      datePrefix = event.start.toLocaleDateString('en-US', { 
+      datePrefix = startDate.toLocaleDateString('en-US', { 
         weekday: 'short', 
         month: 'short', 
         day: 'numeric' 
@@ -431,13 +479,13 @@ export class CalendarTool {
       return datePrefix.replace(', ', '');
     }
     
-    const startTime = event.start.toLocaleTimeString('en-US', { 
+    const startTime = startDate.toLocaleTimeString('en-US', { 
       hour: 'numeric', 
       minute: '2-digit',
       hour12: true 
     });
     
-    const endTime = event.end.toLocaleTimeString('en-US', { 
+    const endTime = endDate.toLocaleTimeString('en-US', { 
       hour: 'numeric', 
       minute: '2-digit',
       hour12: true 
