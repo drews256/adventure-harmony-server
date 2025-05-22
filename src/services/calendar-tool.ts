@@ -411,8 +411,8 @@ export class CalendarTool {
             --fc-non-business-color: #f8f9fa;
         }
         
-        .fc-header-toolbar {
-            margin-bottom: 1.5rem !important;
+        .calendar-wrapper .fc-header-toolbar {
+            margin-bottom: 1.5rem;
             padding: 0 0.5rem;
         }
         
@@ -422,28 +422,28 @@ export class CalendarTool {
             gap: 0.5rem;
         }
         
-        .fc-button {
-            padding: 0.5rem 1rem !important;
-            font-weight: 500 !important;
-            border-radius: 8px !important;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            font-size: 0.875rem !important;
-            box-shadow: var(--shadow-light) !important;
-            position: relative !important;
-            overflow: hidden !important;
+        .calendar-wrapper .fc-button {
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            border-radius: 8px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 0.875rem;
+            box-shadow: var(--shadow-light);
+            position: relative;
+            overflow: hidden;
         }
         
-        .fc-button:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: var(--shadow-medium) !important;
+        .calendar-wrapper .fc-button:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-medium);
         }
         
-        .fc-button:active {
-            transform: translateY(0) !important;
-            transition: all 0.1s ease !important;
+        .calendar-wrapper .fc-button:active {
+            transform: translateY(0);
+            transition: all 0.1s ease;
         }
         
-        .fc-button::before {
+        .calendar-wrapper .fc-button::before {
             content: '';
             position: absolute;
             top: 50%;
@@ -456,27 +456,27 @@ export class CalendarTool {
             transition: width 0.3s ease, height 0.3s ease;
         }
         
-        .fc-button:active::before {
+        .calendar-wrapper .fc-button:active::before {
             width: 300px;
             height: 300px;
             animation: ripple 0.6s ease-out;
         }
         
-        .fc-button-primary {
-            background-color: var(--primary-color) !important;
-            border-color: var(--primary-color) !important;
-            color: white !important;
+        .calendar-wrapper .fc-button-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+            color: white;
         }
         
-        .fc-button-primary:hover {
-            background-color: var(--primary-dark) !important;
-            border-color: var(--primary-dark) !important;
+        .calendar-wrapper .fc-button-primary:hover {
+            background-color: var(--primary-dark);
+            border-color: var(--primary-dark);
         }
         
-        .fc-toolbar-title {
-            font-size: 1.5rem !important;
-            font-weight: 700 !important;
-            color: var(--text-primary) !important;
+        .calendar-wrapper .fc-toolbar-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
             letter-spacing: -0.025em;
         }
         
@@ -491,28 +491,19 @@ export class CalendarTool {
             transform: scale(1.02);
         }
         
-        .fc-daygrid-day-frame {
-            opacity: 0;
-            animation: slideInFromBottom 0.5s ease-out forwards;
+        .calendar-wrapper .fc-daygrid-day-frame {
+            opacity: 1;
         }
         
-        .fc-daygrid-day:nth-child(1) .fc-daygrid-day-frame { animation-delay: 0.05s; }
-        .fc-daygrid-day:nth-child(2) .fc-daygrid-day-frame { animation-delay: 0.1s; }
-        .fc-daygrid-day:nth-child(3) .fc-daygrid-day-frame { animation-delay: 0.15s; }
-        .fc-daygrid-day:nth-child(4) .fc-daygrid-day-frame { animation-delay: 0.2s; }
-        .fc-daygrid-day:nth-child(5) .fc-daygrid-day-frame { animation-delay: 0.25s; }
-        .fc-daygrid-day:nth-child(6) .fc-daygrid-day-frame { animation-delay: 0.3s; }
-        .fc-daygrid-day:nth-child(7) .fc-daygrid-day-frame { animation-delay: 0.35s; }
-        
-        .fc-daygrid-day-number {
+        .calendar-wrapper .fc-daygrid-day-number {
             font-weight: 600;
-            color: var(--text-primary) !important;
+            color: var(--text-primary);
             padding: 0.5rem;
             font-size: 0.875rem;
         }
         
-        .fc-daygrid-day-number:hover {
-            color: var(--primary-color) !important;
+        .calendar-wrapper .fc-daygrid-day-number:hover {
+            color: var(--primary-color);
         }
         
         .fc-daygrid-day-top {
@@ -531,32 +522,31 @@ export class CalendarTool {
             padding: 0.75rem 0.5rem;
         }
         
-        .fc-daygrid-event {
-            border-radius: 6px !important;
-            border: none !important;
-            padding: 2px 6px !important;
-            font-size: 0.75rem !important;
-            font-weight: 500 !important;
-            margin: 1px 2px !important;
-            background: linear-gradient(135deg, var(--accent-color), #059669) !important;
-            color: white !important;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            cursor: pointer !important;
-            opacity: 0 !important;
-            animation: scaleIn 0.4s ease-out forwards !important;
-            position: relative !important;
-            overflow: hidden !important;
+        .calendar-wrapper .fc-daygrid-event {
+            border-radius: 6px;
+            border: none;
+            padding: 2px 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin: 1px 2px;
+            background: linear-gradient(135deg, var(--accent-color), #059669);
+            color: white;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            opacity: 1;
+            position: relative;
+            overflow: hidden;
         }
         
-        .fc-daygrid-event:hover {
-            transform: translateY(-2px) scale(1.02) !important;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+        .calendar-wrapper .fc-daygrid-event:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
         }
         
-        .fc-daygrid-event:active {
-            transform: translateY(0) scale(0.98) !important;
-            transition: all 0.1s ease !important;
+        .calendar-wrapper .fc-daygrid-event:active {
+            transform: translateY(0) scale(0.98);
+            transition: all 0.1s ease;
         }
         
         .fc-daygrid-event::before {
@@ -585,8 +575,7 @@ export class CalendarTool {
             background: white !important;
             box-shadow: var(--shadow-light) !important;
             overflow: hidden !important;
-            opacity: 0 !important;
-            animation: slideInFromBottom 0.5s ease-out forwards !important;
+            opacity: 1 !important;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
         
@@ -595,12 +584,6 @@ export class CalendarTool {
             transform: translateY(-2px) scale(1.01) !important;
             border-color: var(--primary-color) !important;
         }
-        
-        .fc-list-event:nth-child(1) { animation-delay: 0.1s !important; }
-        .fc-list-event:nth-child(2) { animation-delay: 0.2s !important; }
-        .fc-list-event:nth-child(3) { animation-delay: 0.3s !important; }
-        .fc-list-event:nth-child(4) { animation-delay: 0.4s !important; }
-        .fc-list-event:nth-child(5) { animation-delay: 0.5s !important; }
         
         .fc-list-event-graphic {
             background: linear-gradient(135deg, var(--accent-color), #059669) !important;
@@ -698,22 +681,37 @@ export class CalendarTool {
         }
         
         /* Fix text color issues */
-        .fc-col-header-cell-cushion {
-            color: var(--text-secondary) !important;
+        .calendar-wrapper .fc-col-header-cell-cushion {
+            color: var(--text-secondary);
         }
         
-        .fc-daygrid-day-events {
-            margin-top: 0.25rem !important;
+        .calendar-wrapper .fc-daygrid-day-events {
+            margin-top: 0.25rem;
         }
         
-        .fc-event-title {
-            color: white !important;
-            font-weight: 500 !important;
+        .calendar-wrapper .fc-event-title {
+            color: white;
+            font-weight: 500;
+            opacity: 1;
         }
         
-        .fc-event-time {
-            color: rgba(255, 255, 255, 0.9) !important;
-            font-size: 0.7rem !important;
+        .calendar-wrapper .fc-event-time {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.7rem;
+            opacity: 1;
+        }
+        
+        .calendar-wrapper .fc-daygrid-event-harness {
+            opacity: 1;
+        }
+        
+        .calendar-wrapper .fc-event {
+            opacity: 1;
+        }
+        
+        .calendar-wrapper .fc-event-main {
+            color: white;
+            opacity: 1;
         }
         
         .refresh-hint {
@@ -947,16 +945,26 @@ export class CalendarTool {
             
             calendar.render();
             
-            // Add stagger animation to events after render
+            // Ensure all text is visible
             setTimeout(function() {
                 const events = document.querySelectorAll('.fc-daygrid-event');
-                events.forEach((event, index) => {
-                    event.style.animationDelay = (index * 0.05) + 's';
+                events.forEach((event) => {
+                    event.style.opacity = '1';
+                    event.style.visibility = 'visible';
                 });
                 
                 const listEvents = document.querySelectorAll('.fc-list-event');
-                listEvents.forEach((event, index) => {
-                    event.style.animationDelay = (index * 0.1) + 's';
+                listEvents.forEach((event) => {
+                    event.style.opacity = '1';
+                    event.style.visibility = 'visible';
+                });
+                
+                // Force visibility of all text elements
+                const allText = document.querySelectorAll('.fc-event-title, .fc-event-time, .fc-daygrid-day-number');
+                allText.forEach((text) => {
+                    text.style.opacity = '1';
+                    text.style.visibility = 'visible';
+                    text.style.color = text.classList.contains('fc-daygrid-day-number') ? 'var(--text-primary)' : 'white';
                 });
             }, 100);
             
