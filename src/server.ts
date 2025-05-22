@@ -9,6 +9,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 // Import new service modules
 import { createGoGuideClient } from './services/goguide-api';
 import { withRetry } from './utils/retry';
+import { CalendarTool } from './services/calendar-tool';
 
 dotenv.config();
 
@@ -22,6 +23,9 @@ const port = process.env.PORT || 3000;
 const SUPABASE_URL = "https://dhelbmzzhobadauctczs.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+// Initialize calendar tool
+const calendarTool = new CalendarTool(supabase);
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -175,6 +179,48 @@ app.post('/process-message', async (req, res) => {
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
     });
+  }
+});
+
+// Calendar endpoints
+app.post('/create-calendar', async (req, res) => {
+  try {
+    const { icalUrl, title, timezone } = req.body;
+    
+    if (!icalUrl) {
+      return res.status(400).json({ error: 'icalUrl is required' });
+    }
+    
+    const result = await calendarTool.createCalendar({
+      icalUrl,
+      title,
+      timezone
+    });
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating calendar:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+app.get('/calendar/:calendarId', async (req, res) => {
+  try {
+    const { calendarId } = req.params;
+    
+    const html = await calendarTool.getCalendarHTML(calendarId);
+    
+    if (!html) {
+      return res.status(404).send('Calendar not found');
+    }
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    console.error('Error retrieving calendar:', error);
+    res.status(500).send('Internal server error');
   }
 });
 

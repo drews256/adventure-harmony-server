@@ -52,7 +52,13 @@ export function suggestToolsForMessage(message: string, availableTools: MCPTool[
     // Resources and schedules
     'resource': ['Resources_'],
     'equipment': ['Resources_'],
-    'time_slot': ['Schedules_']
+    'time_slot': ['Schedules_'],
+    
+    // Calendar-related keywords
+    'calendar': ['Calendar_'],
+    'event': ['Calendar_'],
+    'ical': ['Calendar_'],
+    'mobile': ['Calendar_']
   };
   
   // Identify keywords in the message

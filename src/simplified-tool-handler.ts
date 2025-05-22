@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { formatToolResponse } from './services/response-formatter';
 import { withRetry } from './utils/retry';
+import { CalendarTool } from './services/calendar-tool';
 
 /**
  * Filters tool schemas to include only necessary parameters
@@ -275,80 +276,87 @@ export async function processToolCallsFromClaude(responseContent: any[],
       // Execute the tool call with enhanced retry logic and better error handling
       let toolResult;
       
-      // Use withRetry for more comprehensive retry handling with exponential backoff
-      toolResult = await withRetry(
-        async () => {
-          try {
-            // Process arguments to handle profile_id context mismatch
-            const processedArgs = { ...block.input };
-            
-            // Extract profile_id if it's nested in context
-            if (processedArgs.context && typeof processedArgs.context === 'object' && processedArgs.context.profileId) {
-              processedArgs.profileId = processedArgs.context.profileId;
-              delete processedArgs.context.profileId;
-              // If context is now empty, remove it
-              if (Object.keys(processedArgs.context).length === 0) {
-                delete processedArgs.context;
-              }
-            }
-            
-            return await mcp.callTool({
-              id: block.id,
-              name: block.name,
-              arguments: processedArgs,
-              tool_result: []
-            });
-          } catch (callError) {
-            // Check if it's an SSE stream error
-            const errorStr = String(callError);
-            if (errorStr.includes("Server already initialized")) {
-              console.log("Server reports it is already initialized, treating as successful");
-              // Return a generic success response
-              return { status: "success", result: "Tool execution completed successfully" };
-            }
-            
-            if (
-              errorStr.includes("stream is not readable") || 
-              errorStr.includes("Error POSTing to endpoint") ||
-              errorStr.includes("SSE")
-            ) {
-              console.error("SSE connection error, attempting to reconnect...");
+      // Check if this is a calendar tool call - handle locally
+      if (block.name === 'Calendar_DisplayMobileCalendar') {
+        console.log('Handling calendar tool locally');
+        const calendarTool = new CalendarTool(supabase);
+        toolResult = await calendarTool.createCalendar(block.input);
+      } else {
+        // Use withRetry for more comprehensive retry handling with exponential backoff for MCP tools
+        toolResult = await withRetry(
+          async () => {
+            try {
+              // Process arguments to handle profile_id context mismatch
+              const processedArgs = { ...block.input };
               
-              // Try to force a reconnect by resetting the MCP client
-              try {
-                // Import the mcpClient reference from worker-entry.ts
-                const workerModule = await import('./worker-entry');
-                // Reset the client to force reconnection
-                if (workerModule && typeof workerModule.resetMcpClient === 'function') {
-                  await workerModule.resetMcpClient();
+              // Extract profile_id if it's nested in context
+              if (processedArgs.context && typeof processedArgs.context === 'object' && processedArgs.context.profileId) {
+                processedArgs.profileId = processedArgs.context.profileId;
+                delete processedArgs.context.profileId;
+                // If context is now empty, remove it
+                if (Object.keys(processedArgs.context).length === 0) {
+                  delete processedArgs.context;
                 }
-                
-                // Throw specific error to trigger retry
-                throw new Error("MCP connection reset, will retry");
-              } catch (resetError) {
-                console.error("MCP reset failed:", resetError);
-                throw resetError;
               }
+              
+              return await mcp.callTool({
+                id: block.id,
+                name: block.name,
+                arguments: processedArgs,
+                tool_result: []
+              });
+            } catch (callError) {
+              // Check if it's an SSE stream error
+              const errorStr = String(callError);
+              if (errorStr.includes("Server already initialized")) {
+                console.log("Server reports it is already initialized, treating as successful");
+                // Return a generic success response
+                return { status: "success", result: "Tool execution completed successfully" };
+              }
+              
+              if (
+                errorStr.includes("stream is not readable") || 
+                errorStr.includes("Error POSTing to endpoint") ||
+                errorStr.includes("SSE")
+              ) {
+                console.error("SSE connection error, attempting to reconnect...");
+                
+                // Try to force a reconnect by resetting the MCP client
+                try {
+                  // Import the mcpClient reference from worker-entry.ts
+                  const workerModule = await import('./worker-entry');
+                  // Reset the client to force reconnection
+                  if (workerModule && typeof workerModule.resetMcpClient === 'function') {
+                    await workerModule.resetMcpClient();
+                  }
+                  
+                  // Throw specific error to trigger retry
+                  throw new Error("MCP connection reset, will retry");
+                } catch (resetError) {
+                  console.error("MCP reset failed:", resetError);
+                  throw resetError;
+                }
+              }
+              
+              // For other types of errors, just rethrow
+              throw callError;
             }
-            
-            // For other types of errors, just rethrow
-            throw callError;
+          },
+          {
+            maxRetries: 3,
+            initialDelay: 1000,
+            backoffFactor: 2,
+            retryableErrors: [
+              'stream is not readable', 
+              'Error POSTing to endpoint', 
+              'Connection timeout', 
+              'MCP connection reset',
+              'network error',
+              'Server already initialized'
+            ]
           }
-        },
-        {
-          maxRetries: 3,
-          initialDelay: 1000,
-          backoffFactor: 2,
-          retryableErrors: [
-            'stream is not readable', 
-            'Error POSTing to endpoint', 
-            'Connection timeout', 
-            'MCP connection reset',
-            'network error',
-            'Server already initialized'
-          ]
-        }
-      );
+        );
+      }
       
       // Format result for storage
       const resultContent = typeof toolResult === 'string' 
