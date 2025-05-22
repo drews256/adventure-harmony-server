@@ -406,6 +406,9 @@ export class CalendarTool {
             --fc-button-active-bg-color: var(--primary-color);
             --fc-button-active-border-color: var(--primary-color);
             --fc-today-bg-color: rgba(37, 99, 235, 0.05);
+            --fc-neutral-bg-color: white;
+            --fc-neutral-text-color: var(--text-primary);
+            --fc-non-business-color: #f8f9fa;
         }
         
         .fc-header-toolbar {
@@ -503,9 +506,13 @@ export class CalendarTool {
         
         .fc-daygrid-day-number {
             font-weight: 600;
-            color: var(--text-primary);
+            color: var(--text-primary) !important;
             padding: 0.5rem;
             font-size: 0.875rem;
+        }
+        
+        .fc-daygrid-day-number:hover {
+            color: var(--primary-color) !important;
         }
         
         .fc-daygrid-day-top {
@@ -639,6 +646,76 @@ export class CalendarTool {
             font-size: 0.875rem !important;
         }
         
+        /* Fix popover and more events styling */
+        .fc-popover {
+            background: white !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 8px !important;
+            box-shadow: var(--shadow-large) !important;
+            z-index: 1000 !important;
+        }
+        
+        .fc-popover-header {
+            background: var(--secondary-color) !important;
+            color: var(--text-primary) !important;
+            padding: 0.75rem !important;
+            font-weight: 600 !important;
+            border-bottom: 1px solid var(--border-color) !important;
+            border-radius: 8px 8px 0 0 !important;
+        }
+        
+        .fc-popover-body {
+            padding: 0.5rem !important;
+            background: white !important;
+        }
+        
+        .fc-popover .fc-daygrid-event {
+            margin: 0.25rem !important;
+            background: linear-gradient(135deg, var(--accent-color), #059669) !important;
+            color: white !important;
+            padding: 0.5rem !important;
+            border-radius: 6px !important;
+            font-weight: 500 !important;
+        }
+        
+        .fc-popover .fc-daygrid-event:hover {
+            transform: none !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
+        }
+        
+        .fc-daygrid-more-link {
+            color: var(--primary-color) !important;
+            font-weight: 600 !important;
+            padding: 0.25rem 0.5rem !important;
+            border-radius: 4px !important;
+            transition: all 0.2s ease !important;
+            text-decoration: none !important;
+        }
+        
+        .fc-daygrid-more-link:hover {
+            background: var(--secondary-color) !important;
+            color: var(--primary-dark) !important;
+        }
+        
+        /* Fix text color issues */
+        .fc-col-header-cell-cushion {
+            color: var(--text-secondary) !important;
+        }
+        
+        .fc-daygrid-day-events {
+            margin-top: 0.25rem !important;
+        }
+        
+        .fc-event-title {
+            color: white !important;
+            font-weight: 500 !important;
+        }
+        
+        .fc-event-time {
+            color: rgba(255, 255, 255, 0.9) !important;
+            font-size: 0.7rem !important;
+        }
+        
         .refresh-hint {
             text-align: center;
             padding: 1rem;
@@ -738,6 +815,7 @@ export class CalendarTool {
                 --primary-color: #3b82f6;
                 --primary-dark: #2563eb;
                 --secondary-color: #1e293b;
+                --accent-color: #10b981;
                 --text-primary: #f8fafc;
                 --text-secondary: #94a3b8;
                 --border-color: #334155;
@@ -756,15 +834,39 @@ export class CalendarTool {
             }
             
             .fc-daygrid-day {
-                background: #1e293b;
+                background: #1e293b !important;
             }
             
             .fc-col-header-cell {
-                background-color: #334155;
+                background-color: #334155 !important;
+                color: var(--text-secondary) !important;
             }
             
             .refresh-hint {
                 background: rgba(30, 41, 59, 0.9);
+            }
+            
+            .fc-popover {
+                background: #1e293b !important;
+                border-color: var(--border-color) !important;
+            }
+            
+            .fc-popover-header {
+                background: #334155 !important;
+                color: var(--text-primary) !important;
+            }
+            
+            .fc-popover-body {
+                background: #1e293b !important;
+            }
+            
+            .fc-list-event {
+                background: #1e293b !important;
+                border-color: var(--border-color) !important;
+            }
+            
+            .fc-list-event-time {
+                background: #334155 !important;
             }
         }
     </style>
