@@ -179,9 +179,8 @@ export class FormGenerator {
     <!-- React and React JSON Schema Form -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@rjsf/core@5.15.1/dist/index.umd.js"></script>
-    <script src="https://unpkg.com/@rjsf/utils@5.15.1/dist/index.umd.js"></script>
-    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.15.1/dist/index.umd.js"></script>
+    <script src="https://unpkg.com/@rjsf/core@5.15.1/dist/core.umd.js"></script>
+    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.15.1/dist/validator-ajv8.umd.js"></script>
     
     <style>
         :root {
@@ -399,8 +398,8 @@ export class FormGenerator {
     </div>
     
     <script>
-        const { Form } = JSONSchemaForm;
-        const { validator } = JSONSchemaFormValidator;
+        const { Form } = RJSFCore;
+        const validator = RJSFValidatorAjv8.default;
         
         const schema = ${JSON.stringify(schema)};
         const uiSchema = ${JSON.stringify(uiSchema)};
