@@ -3,8 +3,8 @@ import { MCPTool } from './goguide-api';
 export interface StandardizedEvent {
   id: string;
   title: string;
-  start: Date;
-  end: Date;
+  start: Date | string; // Allow both Date objects and ISO strings for serialization
+  end: Date | string;   // Allow both Date objects and ISO strings for serialization
   description?: string;
   location?: string;
   allDay: boolean;
@@ -166,7 +166,11 @@ export class EventFormatter {
     }
     
     // Sort events by start time
-    standardizedEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
+    standardizedEvents.sort((a, b) => {
+      const aTime = a.start instanceof Date ? a.start.getTime() : new Date(a.start).getTime();
+      const bTime = b.start instanceof Date ? b.start.getTime() : new Date(b.start).getTime();
+      return aTime - bTime;
+    });
     
     return { events: standardizedEvents };
   }

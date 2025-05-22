@@ -96,11 +96,15 @@ export class CalendarTool {
     ];
 
     for (const event of events) {
+      // Ensure dates are Date objects
+      const startDate = typeof event.start === 'string' ? new Date(event.start) : event.start;
+      const endDate = typeof event.end === 'string' ? new Date(event.end) : event.end;
+      
       lines.push('BEGIN:VEVENT');
       lines.push(`UID:${event.id}`);
       lines.push(`DTSTAMP:${this.formatICalDate(now)}`);
-      lines.push(`DTSTART${event.allDay ? ';VALUE=DATE' : ''}:${this.formatICalDate(event.start, event.allDay)}`);
-      lines.push(`DTEND${event.allDay ? ';VALUE=DATE' : ''}:${this.formatICalDate(event.end, event.allDay)}`);
+      lines.push(`DTSTART${event.allDay ? ';VALUE=DATE' : ''}:${this.formatICalDate(startDate, event.allDay)}`);
+      lines.push(`DTEND${event.allDay ? ';VALUE=DATE' : ''}:${this.formatICalDate(endDate, event.allDay)}`);
       lines.push(`SUMMARY:${this.escapeICalText(event.title)}`);
       
       if (event.description) {
@@ -152,13 +156,14 @@ export class CalendarTool {
 
   /**
    * Convert StandardizedEvent to CalendarEvent for compatibility
+   * Handles the case where dates might be serialized as strings
    */
   private convertToCalendarEvent(event: StandardizedEvent): CalendarEvent {
     return {
       id: event.id,
       title: event.title,
-      start: event.start,
-      end: event.end,
+      start: typeof event.start === 'string' ? new Date(event.start) : event.start,
+      end: typeof event.end === 'string' ? new Date(event.end) : event.end,
       description: event.description,
       location: event.location,
       allDay: event.allDay
