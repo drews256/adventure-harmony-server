@@ -267,21 +267,41 @@ app.get('/help/:helpId', async (req, res) => {
 // Form endpoints
 app.get('/form/:formId', async (req, res) => {
   try {
-    const { formId } = req.params;
-    
-    const { FormGenerator } = await import('./services/form-generator');
-    const formGenerator = new FormGenerator(supabase);
-    const html = await formGenerator.getFormHTML(formId);
-    
-    if (!html) {
-      return res.status(404).send('Form not found or expired');
-    }
+    const { FormRenderer } = await import('./services/form-renderer');
+    const html = FormRenderer.generateFormPage();
     
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (error) {
-    console.error('Error retrieving form:', error);
+    console.error('Error serving form page:', error);
     res.status(500).send('Internal server error');
+  }
+});
+
+// Form configuration API endpoint
+app.get('/api/form-config/:formId', async (req, res) => {
+  try {
+    const { formId } = req.params;
+    
+    const { FormGenerator } = await import('./services/form-generator');
+    const formGenerator = new FormGenerator(supabase);
+    const config = await formGenerator.getFormConfig(formId);
+    
+    if (!config) {
+      return res.status(404).json({ error: 'Form not found or expired' });
+    }
+    
+    // Return only the necessary fields for rendering
+    res.json({
+      form_title: config.form_title,
+      schema: config.schema,
+      ui_schema: config.ui_schema,
+      submit_button_text: config.submit_button_text || 'Submit',
+      success_message: config.success_message || 'Thank you! Your form has been submitted.'
+    });
+  } catch (error) {
+    console.error('Error retrieving form config:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

@@ -159,6 +159,38 @@ export class FormGenerator {
   }
 
   /**
+   * Get form configuration by ID
+   */
+  async getFormConfig(formId: string): Promise<any | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('dynamic_forms')
+        .select('*')
+        .eq('id', formId)
+        .single();
+      
+      if (error || !data) {
+        return null;
+      }
+      
+      // Check if form is expired
+      if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        return null;
+      }
+      
+      // Check if form is still active
+      if (data.status !== 'active') {
+        return null;
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error fetching form config:', error);
+      return null;
+    }
+  }
+
+  /**
    * Generate mobile-optimized React form HTML
    */
   private generateFormHTML(
@@ -177,11 +209,9 @@ export class FormGenerator {
     <title>${this.escapeHtml(formTitle)}</title>
     
     <!-- React and React JSON Schema Form -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@rjsf/core@5.24.7/dist/index.js"></script>
-    <script src="https://unpkg.com/@rjsf/utils@5.24.7/dist/index.js"></script>
-    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.24.7/dist/index.js"></script>
+    <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/react-jsonschema-form@1.8.1/dist/react-jsonschema-form.js"></script>
     
     <style>
         :root {
@@ -408,17 +438,12 @@ export class FormGenerator {
             document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: ReactDOM not loaded</div>';
             throw new Error('ReactDOM not loaded');
         }
-        if (typeof RJSFCore === 'undefined') {
-            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: RJSF Core not loaded</div>';
-            throw new Error('RJSF Core not loaded');
-        }
-        if (typeof RJSFValidatorAjv8 === 'undefined') {
-            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: RJSF Validator not loaded</div>';
-            throw new Error('RJSF Validator not loaded');
+        if (typeof JSONSchemaForm === 'undefined') {
+            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: RJSF not loaded</div>';
+            throw new Error('RJSF not loaded');
         }
 
-        const RJSFForm = RJSFCore.Form;
-        const validator = RJSFValidatorAjv8.default;
+        const RJSFForm = JSONSchemaForm.default || JSONSchemaForm;
         
         const schema = ${JSON.stringify(schema)};
         const uiSchema = ${JSON.stringify(uiSchema)};
@@ -465,7 +490,6 @@ export class FormGenerator {
             return React.createElement(RJSFForm, {
                 schema: schema,
                 uiSchema: uiSchema,
-                validator: validator,
                 onSubmit: handleSubmit,
                 children: React.createElement('button', {
                     type: 'submit',
@@ -545,17 +569,7 @@ export class FormGenerator {
       const schema = this.generateJsonSchema(args.fields);
       const uiSchema = this.generateUiSchema(args.fields);
       
-      // Generate HTML
-      const html = this.generateFormHTML(
-        formId,
-        args.formTitle,
-        schema,
-        uiSchema,
-        args.submitButtonText,
-        args.successMessage
-      );
-      
-      // Store form in database
+      // Store form configuration in database (no HTML)
       const { error } = await this.supabase
         .from('dynamic_forms')
         .insert({
@@ -568,7 +582,8 @@ export class FormGenerator {
           schema,
           ui_schema: uiSchema,
           context: args.context || {},
-          html_content: html,
+          submit_button_text: args.submitButtonText || 'Submit',
+          success_message: args.successMessage || 'Thank you! Your form has been submitted.',
           customer_phone: args.customerPhone,
           customer_name: args.customerName,
           expires_at: expiresAt,
@@ -593,37 +608,6 @@ export class FormGenerator {
     }
   }
 
-  /**
-   * Get form HTML by ID
-   */
-  async getFormHTML(formId: string): Promise<string | null> {
-    try {
-      const { data, error } = await this.supabase
-        .from('dynamic_forms')
-        .select('html_content, status, expires_at')
-        .eq('id', formId)
-        .single();
-      
-      if (error || !data) {
-        return null;
-      }
-      
-      // Check if form is expired
-      if (data.expires_at && new Date(data.expires_at) < new Date()) {
-        return null;
-      }
-      
-      // Check if form is still active
-      if (data.status !== 'active') {
-        return null;
-      }
-      
-      return data.html_content;
-    } catch (error) {
-      console.error('Error fetching form HTML:', error);
-      return null;
-    }
-  }
 
   /**
    * Get MCP tool definition
