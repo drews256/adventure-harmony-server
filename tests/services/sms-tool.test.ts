@@ -69,18 +69,14 @@ describe('SMSTool', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.messageId).toMatch(/^sms_/);
+      expect(result.messageId).toMatch(/^dev_sms_/);
       
       // Verify console.log was called with SMS details
-      expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith(
-        'SMS sent (development mode):',
-        expect.objectContaining({
-          to: '+1234567890',
-          message: 'Test SMS message',
-          from: 'Test Business',
-          messageId: expect.stringMatching(/^sms_/)
-        })
-      );
+      expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith('=== SMS MESSAGE ===');
+      expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith('To: +1234567890');
+      expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith('From: Test Business');
+      expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith('Message: Test SMS message');
+      expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith('==================');
     });
 
     it('should handle missing fromName gracefully', async () => {
@@ -90,12 +86,23 @@ describe('SMSTool', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith(
-        'SMS sent (development mode):',
-        expect.objectContaining({
-          from: 'Adventure Harmony' // default value
-        })
-      );
+      expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith('From: Adventure Harmony');
+    });
+
+    it('should generate unique message IDs', async () => {
+      const result1 = await smsTool.sendSMS({
+        to: '+1234567890',
+        message: 'Test message 1'
+      });
+
+      const result2 = await smsTool.sendSMS({
+        to: '+1234567890',
+        message: 'Test message 2'
+      });
+
+      expect(result1.success).toBe(true);
+      expect(result2.success).toBe(true);
+      expect(result1.messageId).not.toBe(result2.messageId);
     });
   });
 
@@ -112,10 +119,7 @@ describe('SMSTool', () => {
       
       // Check that the message was formatted correctly
       expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith(
-        'SMS sent (development mode):',
-        expect.objectContaining({
-          message: 'Hi! Test Outfitter has sent you a form to fill out: "Booking Form". Please click here to complete it: https://example.com/form/123'
-        })
+        'Message: Hi! Test Outfitter has sent you a form to fill out: "Booking Form". Please click here to complete it: https://example.com/form/123'
       );
     });
 
@@ -128,10 +132,7 @@ describe('SMSTool', () => {
 
       expect(result.success).toBe(true);
       expect(consoleMock.consoleSpy.log).toHaveBeenCalledWith(
-        'SMS sent (development mode):',
-        expect.objectContaining({
-          message: expect.stringContaining('Adventure Harmony has sent you')
-        })
+        'Message: Hi! Adventure Harmony has sent you a form to fill out: "Contact Form". Please click here to complete it: https://example.com/form/123'
       );
     });
 
@@ -145,11 +146,51 @@ describe('SMSTool', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid phone number format');
     });
+
+    it('should return success with messageId for valid requests', async () => {
+      const result = await smsTool.sendFormLink(
+        '+1234567890',
+        'https://example.com/form/123',
+        'Test Form',
+        'Test Business'
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.messageId).toMatch(/^dev_sms_/);
+      expect(result.error).toBeUndefined();
+    });
   });
 
   describe('getToolDefinition', () => {
-    it('should return valid tool definition', () => {
+    it('should return valid tool definition for general SMS', () => {
       const definition = SMSTool.getToolDefinition();
+
+      expect(definition).toMatchObject({
+        name: 'SMS_SendMessage',
+        description: expect.stringContaining('Sends SMS text messages'),
+        inputSchema: {
+          type: 'object',
+          properties: expect.objectContaining({
+            to: expect.any(Object),
+            message: expect.any(Object),
+            fromName: expect.any(Object)
+          }),
+          required: expect.arrayContaining(['to', 'message'])
+        }
+      });
+    });
+
+    it('should have fromName as optional parameter', () => {
+      const definition = SMSTool.getToolDefinition();
+      
+      expect(definition.inputSchema.required).not.toContain('fromName');
+      expect(definition.inputSchema.properties.fromName).toHaveProperty('description');
+    });
+  });
+
+  describe('getFormLinkToolDefinition', () => {
+    it('should return valid tool definition for form links', () => {
+      const definition = SMSTool.getFormLinkToolDefinition();
 
       expect(definition).toMatchObject({
         name: 'SMS_SendFormLink',
@@ -167,8 +208,8 @@ describe('SMSTool', () => {
       });
     });
 
-    it('should have businessName as optional parameter', () => {
-      const definition = SMSTool.getToolDefinition();
+    it('should have businessName as optional parameter with default', () => {
+      const definition = SMSTool.getFormLinkToolDefinition();
       
       expect(definition.inputSchema.required).not.toContain('businessName');
       expect(definition.inputSchema.properties.businessName).toHaveProperty('default', 'Adventure Harmony');

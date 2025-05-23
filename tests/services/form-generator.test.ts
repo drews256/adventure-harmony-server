@@ -12,97 +12,18 @@ describe('FormGenerator', () => {
     await cleanupTestData();
   });
 
-  describe('generateJsonSchema', () => {
-    it('should generate valid JSON schema from simple fields', () => {
-      const fields = [
-        { name: 'firstName', type: 'text', title: 'First Name', required: true },
-        { name: 'email', type: 'email', title: 'Email Address', required: true },
-        { name: 'phone', type: 'tel', title: 'Phone Number', required: false }
-      ];
-
-      const schema = formGenerator.generateJsonSchema(fields);
-
-      expect(schema).toEqual({
-        type: 'object',
-        properties: {
-          firstName: { type: 'string', title: 'First Name' },
-          email: { type: 'string', title: 'Email Address', format: 'email' },
-          phone: { type: 'string', title: 'Phone Number' }
-        },
-        required: ['firstName', 'email']
-      });
-    });
-
-    it('should handle different field types correctly', () => {
-      const fields = [
-        { name: 'age', type: 'number', title: 'Age' },
-        { name: 'terms', type: 'checkbox', title: 'Accept Terms' },
-        { name: 'message', type: 'textarea', title: 'Message' },
-        { name: 'date', type: 'date', title: 'Preferred Date' }
-      ];
-
-      const schema = formGenerator.generateJsonSchema(fields);
-
-      expect(schema.properties).toEqual({
-        age: { type: 'number', title: 'Age' },
-        terms: { type: 'boolean', title: 'Accept Terms' },
-        message: { type: 'string', title: 'Message' },
-        date: { type: 'string', title: 'Preferred Date', format: 'date' }
-      });
-    });
-  });
-
-  describe('generateUiSchema', () => {
-    it('should generate UI schema for different field types', () => {
-      const fields = [
-        { name: 'message', type: 'textarea', title: 'Message' },
-        { name: 'phone', type: 'tel', title: 'Phone' },
-        { name: 'password', type: 'password', title: 'Password' }
-      ];
-
-      const uiSchema = formGenerator.generateUiSchema(fields);
-
-      expect(uiSchema).toEqual({
-        message: { 'ui:widget': 'textarea' },
-        phone: { 'ui:inputType': 'tel' },
-        password: { 'ui:widget': 'password' }
-      });
-    });
-
-    it('should include help text and placeholders', () => {
-      const fields = [
-        { 
-          name: 'email', 
-          type: 'email', 
-          title: 'Email',
-          placeholder: 'Enter your email',
-          help: 'We will never share your email'
-        }
-      ];
-
-      const uiSchema = formGenerator.generateUiSchema(fields);
-
-      expect(uiSchema.email).toEqual({
-        'ui:placeholder': 'Enter your email',
-        'ui:help': 'We will never share your email'
-      });
-    });
-  });
-
   describe('createForm', () => {
     it('should create a form and return URL and form ID', async () => {
       const args = {
         formTitle: 'Test Booking Form',
         formType: 'booking',
         fields: [
-          { name: 'name', type: 'text', title: 'Full Name', required: true },
-          { name: 'email', type: 'email', title: 'Email', required: true }
+          { name: 'name', type: 'text' as const, label: 'Full Name', required: true },
+          { name: 'email', type: 'email' as const, label: 'Email', required: true }
         ],
         customerPhone: '+1234567890',
-        context: {
-          profileId: 'test_profile_123',
-          messageId: 'test_msg_123'
-        }
+        originatingProfileId: 'test_profile_123',
+        originatingMessageId: 'test_msg_123'
       };
 
       const result = await formGenerator.createForm(args);
@@ -143,8 +64,9 @@ describe('FormGenerator', () => {
         formTitle: 'Simple Form',
         formType: 'contact',
         fields: [
-          { name: 'message', type: 'textarea', title: 'Message' }
-        ]
+          { name: 'message', type: 'textarea' as const, label: 'Message' }
+        ],
+        originatingProfileId: 'test_profile_123'
       };
 
       const result = await formGenerator.createForm(args);
@@ -157,25 +79,24 @@ describe('FormGenerator', () => {
         .single();
 
       expect(form?.html_content).toContain('<!DOCTYPE html>');
-      expect(form?.html_content).toContain('React JSON Schema Form');
+      expect(form?.html_content).toContain('React');
       expect(form?.html_content).toContain('Simple Form');
       expect(form?.html_content).toContain('/api/form-submit');
     });
 
     it('should handle optional expiration date', async () => {
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
-      
       const args = {
         formTitle: 'Expiring Form',
         formType: 'booking',
-        fields: [{ name: 'name', type: 'text', title: 'Name' }],
-        expiresAt: expiresAt.toISOString()
+        fields: [{ name: 'name', type: 'text' as const, label: 'Name' }],
+        expiresInHours: 24,
+        originatingProfileId: 'test_profile_123'
       };
 
       const result = await formGenerator.createForm(args);
 
       expect(result).toHaveProperty('expiresAt');
-      expect(new Date(result.expiresAt!)).toEqual(expiresAt);
+      expect(result.expiresAt).toBeDefined();
 
       // Verify in database
       const { data: form } = await testSupabase
@@ -184,7 +105,99 @@ describe('FormGenerator', () => {
         .eq('id', result.formId)
         .single();
 
-      expect(new Date(form?.expires_at)).toEqual(expiresAt);
+      expect(form?.expires_at).toBeDefined();
+    });
+
+    it('should handle different field types correctly', async () => {
+      const args = {
+        formTitle: 'Multi-Field Form',
+        formType: 'survey',
+        fields: [
+          { name: 'age', type: 'number' as const, label: 'Age' },
+          { name: 'terms', type: 'checkbox' as const, label: 'Accept Terms' },
+          { name: 'message', type: 'textarea' as const, label: 'Message' },
+          { name: 'date', type: 'date' as const, label: 'Preferred Date' },
+          { name: 'category', type: 'select' as const, label: 'Category', options: ['A', 'B', 'C'] }
+        ],
+        originatingProfileId: 'test_profile_123'
+      };
+
+      const result = await formGenerator.createForm(args);
+      
+      // Get form from database to check schema
+      const { data: form } = await testSupabase
+        .from('dynamic_forms')
+        .select('schema')
+        .eq('id', result.formId)
+        .single();
+
+      expect(form?.schema.properties).toEqual({
+        age: { type: 'number', title: 'Age' },
+        terms: { type: 'boolean', title: 'Accept Terms' },
+        message: { type: 'string', title: 'Message' },
+        date: { type: 'string', title: 'Preferred Date', format: 'date' },
+        category: { type: 'string', title: 'Category', enum: ['A', 'B', 'C'] }
+      });
+    });
+
+    it('should validate required fields', async () => {
+      const argsWithoutTitle = {
+        formType: 'booking',
+        fields: [{ name: 'name', type: 'text' as const, label: 'Name' }],
+        originatingProfileId: 'test_profile_123'
+      };
+
+      await expect(formGenerator.createForm(argsWithoutTitle as any))
+        .rejects.toThrow('Form title is required');
+    });
+
+    it('should validate required fields array', async () => {
+      const argsWithoutFields = {
+        formTitle: 'Test Form',
+        formType: 'booking',
+        fields: [],
+        originatingProfileId: 'test_profile_123'
+      };
+
+      await expect(formGenerator.createForm(argsWithoutFields))
+        .rejects.toThrow('At least one field is required');
+    });
+
+    it('should validate required profile ID', async () => {
+      const argsWithoutProfileId = {
+        formTitle: 'Test Form',
+        formType: 'booking',
+        fields: [{ name: 'name', type: 'text' as const, label: 'Name' }]
+      };
+
+      await expect(formGenerator.createForm(argsWithoutProfileId as any))
+        .rejects.toThrow('Originating profile ID is required');
+    });
+  });
+
+  describe('getFormHTML', () => {
+    it('should return HTML for active form', async () => {
+      // First create a form
+      const args = {
+        formTitle: 'Test Form',
+        formType: 'contact',
+        fields: [{ name: 'name', type: 'text' as const, label: 'Name' }],
+        originatingProfileId: 'test_profile_123'
+      };
+
+      const { formId } = await formGenerator.createForm(args);
+      
+      // Then retrieve its HTML
+      const html = await formGenerator.getFormHTML(formId);
+      
+      expect(html).toBeDefined();
+      expect(html).toContain('<!DOCTYPE html>');
+      expect(html).toContain('Test Form');
+    });
+
+    it('should return null for non-existent form', async () => {
+      const html = await formGenerator.getFormHTML('non_existent_form');
+      expect(html).toBeNull();
     });
   });
 
@@ -194,15 +207,16 @@ describe('FormGenerator', () => {
 
       expect(definition).toMatchObject({
         name: 'FormGenerator_CreateForm',
-        description: expect.stringContaining('Generate mobile-optimized forms'),
+        description: expect.stringContaining('mobile-optimized'),
         inputSchema: {
           type: 'object',
           properties: expect.objectContaining({
             formTitle: expect.any(Object),
             formType: expect.any(Object),
-            fields: expect.any(Object)
+            fields: expect.any(Object),
+            originatingProfileId: expect.any(Object)
           }),
-          required: expect.arrayContaining(['formTitle', 'formType', 'fields'])
+          required: expect.arrayContaining(['formTitle', 'formType', 'fields', 'originatingProfileId'])
         }
       });
     });

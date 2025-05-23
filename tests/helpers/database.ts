@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://dhelbmzzhobadauctczs.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+// For tests, we'll use the anon key since we don't have service role key access
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoZWxibXp6aG9iYWRhdWN0Y3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyNjE4NjAsImV4cCI6MjA1NzgzNzg2MH0.YsAuD4nlB2dF5vNGs7itgRO21yRYx6Ge8MYeCIXDMzo';
 
 export const testSupabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
