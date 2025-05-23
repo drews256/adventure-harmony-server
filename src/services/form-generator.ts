@@ -177,10 +177,11 @@ export class FormGenerator {
     <title>${this.escapeHtml(formTitle)}</title>
     
     <!-- React and React JSON Schema Form -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@rjsf/core@5.15.1/dist/core.umd.js"></script>
-    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.15.1/dist/validator-ajv8.umd.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@rjsf/core@5.15.1/dist/index.umd.js"></script>
+    <script src="https://unpkg.com/@rjsf/utils@5.15.1/dist/index.umd.js"></script>
+    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.15.1/dist/index.umd.js"></script>
     
     <style>
         :root {
@@ -398,6 +399,24 @@ export class FormGenerator {
     </div>
     
     <script>
+        // Check if all required libraries are loaded
+        if (typeof React === 'undefined') {
+            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: React not loaded</div>';
+            throw new Error('React not loaded');
+        }
+        if (typeof ReactDOM === 'undefined') {
+            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: ReactDOM not loaded</div>';
+            throw new Error('ReactDOM not loaded');
+        }
+        if (typeof RJSFCore === 'undefined') {
+            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: RJSF Core not loaded</div>';
+            throw new Error('RJSF Core not loaded');
+        }
+        if (typeof RJSFValidatorAjv8 === 'undefined') {
+            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: RJSF Validator not loaded</div>';
+            throw new Error('RJSF Validator not loaded');
+        }
+
         const { Form } = RJSFCore;
         const validator = RJSFValidatorAjv8.default;
         
