@@ -179,9 +179,9 @@ export class FormGenerator {
     <!-- React and React JSON Schema Form -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@rjsf/core@5.6.2/dist/index.umd.js"></script>
-    <script src="https://unpkg.com/@rjsf/utils@5.6.2/dist/index.umd.js"></script>
-    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.6.2/dist/index.umd.js"></script>
+    <script src="https://unpkg.com/@rjsf/core@5.24.7/dist/index.js"></script>
+    <script src="https://unpkg.com/@rjsf/utils@5.24.7/dist/index.js"></script>
+    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.24.7/dist/index.js"></script>
     
     <style>
         :root {

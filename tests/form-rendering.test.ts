@@ -28,9 +28,9 @@ const mockSupabase = {
     <title>Test Form</title>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@rjsf/core@5.15.1/dist/index.umd.js"></script>
-    <script src="https://unpkg.com/@rjsf/utils@5.15.1/dist/index.umd.js"></script>
-    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.15.1/dist/index.umd.js"></script>
+    <script src="https://unpkg.com/@rjsf/core@5.24.7/dist/index.js"></script>
+    <script src="https://unpkg.com/@rjsf/utils@5.24.7/dist/index.js"></script>
+    <script src="https://unpkg.com/@rjsf/validator-ajv8@5.24.7/dist/index.js"></script>
     <style>
         @media (max-width: 768px) { body { width: 100%; } }
     </style>
@@ -125,9 +125,9 @@ describe('Form Rendering Tests', () => {
       expect(html).toContain('react-dom@18/umd/react-dom.development.js');
       
       // Check for RJSF dependencies
-      expect(html).toContain('@rjsf/core@5.15.1/dist/index.umd.js');
-      expect(html).toContain('@rjsf/utils@5.15.1/dist/index.umd.js');
-      expect(html).toContain('@rjsf/validator-ajv8@5.15.1/dist/index.umd.js');
+      expect(html).toContain('@rjsf/core@5.24.7/dist/index.js');
+      expect(html).toContain('@rjsf/utils@5.24.7/dist/index.js');
+      expect(html).toContain('@rjsf/validator-ajv8@5.24.7/dist/index.js');
     });
 
     it('should include library loading checks', async () => {
