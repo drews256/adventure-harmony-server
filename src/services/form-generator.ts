@@ -417,7 +417,7 @@ export class FormGenerator {
             throw new Error('RJSF Validator not loaded');
         }
 
-        const { Form } = RJSFCore;
+        const RJSFForm = RJSFCore.Form;
         const validator = RJSFValidatorAjv8.default;
         
         const schema = ${JSON.stringify(schema)};
@@ -462,7 +462,7 @@ export class FormGenerator {
                 );
             }
             
-            return React.createElement(Form, {
+            return React.createElement(RJSFForm, {
                 schema: schema,
                 uiSchema: uiSchema,
                 validator: validator,
