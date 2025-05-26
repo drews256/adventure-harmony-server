@@ -29,12 +29,20 @@ The A2A implementation (`python_worker_a2a.py`) provides:
 
 ### Tools
 
-All tools are A2A-compliant with proper schemas:
+All tools are A2A-compliant with proper schemas. Following the TypeScript implementation, all tools are always available to Claude (not filtered by message content):
 
+#### Local Tools:
 1. **calendar_display**: Calendar interface for date management
 2. **dynamic_form**: Dynamic form generation for user input
 3. **sms_send**: SMS message sending
 4. **help_request**: Help request management
+
+#### MCP/OCTO Tools (when connected):
+5. **OrderLine tools**: Various tools for managing bookings and orders
+6. **Token tools**: Tools for handling authentication and access tokens
+7. **Additional MCP tools**: Any other tools exposed by the MCP server
+
+The worker connects to the MCP server on startup and dynamically adds available tools to its capabilities.
 
 ## Database Schema
 

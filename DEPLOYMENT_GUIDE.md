@@ -51,7 +51,7 @@ The A2A Python worker:
 1. **Backward Compatibility**: Worker now handles both old schema (without new columns) and new schema
 2. **Phone Number Handling**: Falls back to `phone_number` when `from_number`/`to_number` don't exist
 3. **System Prompt**: Now includes the exact same system prompt as the TypeScript version
-4. **SMS Tool Filtering**: SMS tool only activates when explicitly mentioned (not for every message)
+4. **All Tools Always Available**: Matches TypeScript - all tools are always provided to Claude (calendar, forms, help, SMS)
 5. **Error Handling**: Uses `error_message` column when `metadata` doesn't exist
 6. **Tool Choice Fix**: Only passes `tool_choice` parameter when tools are actually available
 7. **SMS Sending**: Now actually sends SMS messages using `supabase.functions.invoke('send-sms', ...)`
@@ -59,6 +59,34 @@ The A2A Python worker:
 9. **Simplified Conversation History**: Retrieves all messages exchanged with a phone number, ordered by time
 10. **Tool History**: Correctly formats tool_use and tool_result blocks in conversation history
 11. **No Complex IDs**: Removed complex conversation_id/thread_id management - just uses phone number for continuity
+
+## Tools Available
+
+The Python worker now includes:
+
+### Local Tools (always available):
+- **calendar_display**: Calendar interface for scheduling
+- **dynamic_form**: Form generation for user input
+- **help_request**: Help request management
+- **sms_send**: SMS message sending
+
+### MCP Tools (when MCP server is available):
+- All tools exposed by the MCP server are automatically available
+- No filtering applied - the MCP server handles which tools to expose
+
+## MCP Connection
+
+The Python worker connects to the MCP server at the endpoint specified by:
+```
+MCP_ENDPOINT=http://localhost:3001/mcp/v1
+```
+
+On startup, it:
+1. Connects to the MCP server
+2. Retrieves all available tools
+3. Makes them available to Claude alongside local tools
+
+If MCP is not available, the worker continues with just local tools.
 
 ## System Prompt Context
 

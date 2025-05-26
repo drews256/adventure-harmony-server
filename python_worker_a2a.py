@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-A2A Protocol-compliant Python Worker for Message Analysis Server
-Uses Google's A2A protocol for agent communication
+A2A Protocol-compliant Python Worker with MCP support
+Connects to MCP server for OCTO/GoGuide tools
 """
 
 import asyncio
@@ -21,6 +21,15 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
+# Try to import MCP
+try:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    logging.warning("MCP module not available - install with: pip install mcp")
+
 # Load environment variables
 load_dotenv()
 
@@ -39,6 +48,9 @@ POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', '5'))
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
+# MCP Configuration
+MCP_ENDPOINT = os.getenv('MCP_ENDPOINT', 'http://localhost:3001/mcp/v1')
+
 # A2A Configuration
 A2A_AGENT_ID = os.getenv('A2A_AGENT_ID', 'message-analysis-agent')
 A2A_AGENT_NAME = os.getenv('A2A_AGENT_NAME', 'Message Analysis Agent')
@@ -47,6 +59,93 @@ A2A_AGENT_VERSION = '1.0.0'
 # Initialize clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 anthropic = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+
+class MCPClient:
+    """MCP Client for connecting to GoGuide/OCTO tools"""
+    
+    def __init__(self, endpoint: str):
+        self.endpoint = endpoint
+        self.session_id = str(uuid.uuid4())
+        self.http_client = httpx.AsyncClient(
+            timeout=30.0,
+            headers={
+                'Accept': 'application/json, text/event-stream',
+                'Content-Type': 'application/json',
+                'X-MCP-Session-ID': self.session_id
+            }
+        )
+        self.tools = []
+        self.connected = False
+    
+    async def connect(self):
+        """Connect to MCP server and initialize"""
+        try:
+            logger.info(f"Connecting to MCP server at {self.endpoint}")
+            
+            # Initialize connection
+            init_response = await self.http_client.post(
+                f"{self.endpoint}/initialize",
+                json={
+                    "protocolVersion": "2025-03-26",
+                    "clientInfo": {
+                        "name": "Python A2A Worker",
+                        "version": "1.0.0"
+                    },
+                    "sessionId": self.session_id
+                }
+            )
+            
+            if init_response.status_code == 200:
+                self.connected = True
+                logger.info("Successfully connected to MCP server")
+                
+                # Get available tools
+                await self.refresh_tools()
+            else:
+                logger.error(f"Failed to connect to MCP: {init_response.status_code} - {init_response.text}")
+                
+        except Exception as e:
+            logger.error(f"Error connecting to MCP: {e}")
+            self.connected = False
+    
+    async def refresh_tools(self):
+        """Get available tools from MCP server"""
+        try:
+            tools_response = await self.http_client.get(f"{self.endpoint}/tools")
+            if tools_response.status_code == 200:
+                tools_data = tools_response.json()
+                self.tools = tools_data.get("tools", [])
+                logger.info(f"Retrieved {len(self.tools)} tools from MCP server")
+                
+        except Exception as e:
+            logger.error(f"Error getting tools from MCP: {e}")
+    
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Call a tool through MCP"""
+        try:
+            response = await self.http_client.post(
+                f"{self.endpoint}/tools/{tool_name}/call",
+                json={
+                    "arguments": arguments,
+                    "sessionId": self.session_id
+                }
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "error": f"Tool call failed: {response.status_code} - {response.text}"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error calling MCP tool {tool_name}: {e}")
+            return {"error": str(e)}
+    
+    async def close(self):
+        """Close MCP connection"""
+        await self.http_client.aclose()
 
 
 class A2AMessageType(Enum):
@@ -100,7 +199,7 @@ class A2AAgentCard:
         self.capabilities = []
         self.tools = []
         self.interaction_modes = ["synchronous", "streaming"]
-        self.description = "AI agent for message analysis and task execution"
+        self.description = "AI agent for message analysis and task execution with MCP support"
     
     def add_tool(self, tool: A2ATool):
         """Add a tool to the agent card"""
@@ -118,7 +217,8 @@ class A2AAgentCard:
             "interaction_modes": self.interaction_modes,
             "metadata": {
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "protocol_version": "1.0"
+                "protocol_version": "1.0",
+                "mcp_enabled": MCP_AVAILABLE
             }
         }
 
@@ -173,17 +273,40 @@ class CalendarTool(A2ALocalTool):
     
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> A2AMessage:
         """Execute calendar tool"""
-        result = {
-            "type": "calendar",
-            "data": params,
-            "rendered": f"Calendar for {params.get('year', datetime.now().year)}-{params.get('month', datetime.now().month)}"
+        # Store calendar display in database
+        calendar_data = {
+            "message_id": context.get("message_id"),
+            "year": params.get("year", datetime.now().year),
+            "month": params.get("month", datetime.now().month),
+            "events": json.dumps(params.get("events", [])),
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
         
-        return A2AMessage(
-            jsonrpc="2.0",
-            id=context.get("request_id"),
-            result=result
-        )
+        try:
+            result = supabase.table("calendar_displays").insert(calendar_data).execute()
+            calendar_id = result.data[0]["id"]
+            
+            return A2AMessage(
+                jsonrpc="2.0",
+                id=context.get("request_id"),
+                result={
+                    "type": "calendar",
+                    "calendar_id": calendar_id,
+                    "data": params,
+                    "rendered": f"Calendar for {params.get('year', datetime.now().year)}-{params.get('month', datetime.now().month)}"
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error storing calendar: {e}")
+            return A2AMessage(
+                jsonrpc="2.0",
+                id=context.get("request_id"),
+                result={
+                    "type": "calendar",
+                    "data": params,
+                    "rendered": f"Calendar for {params.get('year', datetime.now().year)}-{params.get('month', datetime.now().month)}"
+                }
+            )
 
 
 class FormTool(A2ALocalTool):
@@ -228,9 +351,9 @@ class FormTool(A2ALocalTool):
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> A2AMessage:
         """Execute form tool"""
         try:
-            # Store form in database
+            # Store form in database - using message_id from context
             form_data = {
-                "conversation_id": context.get("conversation_id"),
+                "conversation_id": context.get("message_id", str(uuid.uuid4())),
                 "title": params.get("title", "Form"),
                 "fields": json.dumps(params.get("fields", [])),
                 "status": "pending",
@@ -334,7 +457,7 @@ class HelpTool(A2ALocalTool):
         try:
             # Store help request in database
             help_data = {
-                "conversation_id": context.get("conversation_id"),
+                "conversation_id": context.get("message_id", str(uuid.uuid4())),
                 "category": params.get("category", "general"),
                 "urgency": params.get("urgency", "medium"),
                 "description": params.get("description", ""),
@@ -366,26 +489,47 @@ class HelpTool(A2ALocalTool):
 
 
 class A2AMessageProcessor:
-    """Handles A2A protocol message processing with Claude"""
+    """Handles A2A protocol message processing with Claude and MCP"""
     
     def __init__(self):
-        # Initialize tools
+        # Initialize local tools
         self.calendar_tool = CalendarTool()
         self.form_tool = FormTool()
         self.sms_tool = SMSTool()
         self.help_tool = HelpTool()
         
-        self.tools = {
+        self.local_tools = {
             "calendar_display": self.calendar_tool,
             "dynamic_form": self.form_tool,
             "sms_send": self.sms_tool,
             "help_request": self.help_tool
         }
         
+        # MCP client for OCTO tools
+        self.mcp_client = MCPClient(MCP_ENDPOINT) if MCP_AVAILABLE else None
+        self.mcp_tools = {}
+        
         # Create agent card
         self.agent_card = A2AAgentCard(A2A_AGENT_ID, A2A_AGENT_NAME, A2A_AGENT_VERSION)
-        for tool in self.tools.values():
+        for tool in self.local_tools.values():
             self.agent_card.add_tool(tool.tool_def)
+    
+    async def initialize(self):
+        """Initialize MCP connection and get tools"""
+        if self.mcp_client:
+            await self.mcp_client.connect()
+            if self.mcp_client.connected:
+                # Add ALL MCP tools to our available tools (no filtering)
+                for mcp_tool in self.mcp_client.tools:
+                    # Create A2A tool definition for MCP tool
+                    a2a_tool = A2ATool(
+                        name=mcp_tool["name"],
+                        description=mcp_tool.get("description", ""),
+                        input_schema=mcp_tool.get("inputSchema", {"type": "object"})
+                    )
+                    self.mcp_tools[mcp_tool["name"]] = a2a_tool
+                    self.agent_card.add_tool(a2a_tool)
+                    logger.info(f"Added MCP tool: {mcp_tool['name']}")
     
     async def handle_a2a_request(self, message: A2AMessage) -> A2AMessage:
         """Handle incoming A2A request"""
@@ -404,8 +548,16 @@ class A2AMessageProcessor:
             context = message.params.get("context", {})
             context["request_id"] = message.id
             
-            if tool_name in self.tools:
-                return await self.tools[tool_name].execute(tool_params, context)
+            if tool_name in self.local_tools:
+                return await self.local_tools[tool_name].execute(tool_params, context)
+            elif tool_name in self.mcp_tools and self.mcp_client:
+                # Execute MCP tool
+                result = await self.mcp_client.call_tool(tool_name, tool_params)
+                return A2AMessage(
+                    jsonrpc="2.0",
+                    id=message.id,
+                    result=result
+                )
             else:
                 return A2AMessage(
                     jsonrpc="2.0",
@@ -438,19 +590,24 @@ class A2AMessageProcessor:
             content = params.get("content", "")
             conversation_history = params.get("history", [])
             
-            # Filter relevant tools based on content
-            relevant_tools = self.filter_tools(content)
+            # Get all tools (local + MCP)
+            all_tools = list(self.local_tools.keys()) + list(self.mcp_tools.keys())
             
             # Build tool definitions for Claude
             claude_tools = []
-            for tool_name in relevant_tools:
-                if tool_name in self.tools:
-                    tool = self.tools[tool_name].tool_def
-                    claude_tools.append({
-                        "name": tool.name,
-                        "description": tool.description,
-                        "input_schema": tool.input_schema
-                    })
+            for tool_name in all_tools:
+                if tool_name in self.local_tools:
+                    tool = self.local_tools[tool_name].tool_def
+                elif tool_name in self.mcp_tools:
+                    tool = self.mcp_tools[tool_name]
+                else:
+                    continue
+                    
+                claude_tools.append({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.input_schema
+                })
             
             # Build enhanced prompt with system instructions
             enhanced_prompt = f"""
@@ -508,16 +665,26 @@ class A2AMessageProcessor:
                     result["text"] += content_block.text
                 elif content_block.type == "tool_use":
                     # Execute tool and get result
-                    tool_result = await self.tools[content_block.name].execute(
-                        content_block.input,
-                        {"conversation_id": params.get("conversation_id")}
-                    )
+                    tool_name = content_block.name
                     
-                    result["tool_calls"].append({
-                        "tool": content_block.name,
-                        "input": content_block.input,
-                        "result": tool_result.result if tool_result.result else tool_result.error
-                    })
+                    if tool_name in self.local_tools:
+                        tool_result = await self.local_tools[tool_name].execute(
+                            content_block.input,
+                            {"message_id": params.get("message_id")}
+                        )
+                        result["tool_calls"].append({
+                            "tool": tool_name,
+                            "input": content_block.input,
+                            "result": tool_result.result if tool_result.result else tool_result.error
+                        })
+                    elif tool_name in self.mcp_tools and self.mcp_client:
+                        # Execute MCP tool
+                        mcp_result = await self.mcp_client.call_tool(tool_name, content_block.input)
+                        result["tool_calls"].append({
+                            "tool": tool_name,
+                            "input": content_block.input,
+                            "result": mcp_result
+                        })
             
             return A2AMessage(
                 jsonrpc="2.0",
@@ -536,35 +703,18 @@ class A2AMessageProcessor:
                     "data": {"details": str(e)}
                 }
             )
-    
-    def filter_tools(self, message_content: str) -> List[str]:
-        """Filter tools based on message content"""
-        tools = []
-        content_lower = message_content.lower()
-        
-        if any(word in content_lower for word in ["calendar", "schedule", "date", "appointment"]):
-            tools.append("calendar_display")
-        
-        if any(word in content_lower for word in ["form", "input", "fill", "submit"]):
-            tools.append("dynamic_form")
-        
-        if any(word in content_lower for word in ["help", "assist", "support", "problem"]):
-            tools.append("help_request")
-        
-        # Only include SMS tool if explicitly mentioned
-        if any(word in content_lower for word in ["send", "text", "sms", "message someone", "notify"]):
-            tools.append("sms_send")
-        
-        # If no tools matched, return empty list (Claude will just respond with text)
-        return tools
 
 
 class A2AWorker:
-    """A2A Protocol-compliant worker"""
+    """A2A Protocol-compliant worker with MCP support"""
     
     def __init__(self):
         self.processor = A2AMessageProcessor()
         self.running = True
+    
+    async def initialize(self):
+        """Initialize the worker and MCP connection"""
+        await self.processor.initialize()
     
     async def get_pending_message(self) -> Optional[Dict[str, Any]]:
         """Fetch a pending message from the database"""
@@ -731,7 +881,8 @@ class A2AWorker:
                 params={
                     "content": message["content"],
                     "history": history,
-                    "conversation_id": message.get("conversation_id", message["id"]),
+                    "message_id": message["id"],
+                    "phone_number": phone_number,
                     "from_number": from_number,
                     "to_number": to_number
                 }
@@ -855,7 +1006,11 @@ class A2AWorker:
     
     async def process_loop(self):
         """Main processing loop"""
-        logger.info(f"A2A Worker started (Agent: {A2A_AGENT_ID})")
+        logger.info(f"A2A Worker with MCP support starting (Agent: {A2A_AGENT_ID})")
+        
+        # Initialize MCP connection
+        await self.initialize()
+        
         logger.info("Agent Card:")
         logger.info(json.dumps(self.processor.agent_card.to_dict(), indent=2))
         
@@ -878,6 +1033,11 @@ class A2AWorker:
     def stop(self):
         """Stop the worker"""
         self.running = False
+    
+    async def cleanup(self):
+        """Cleanup resources"""
+        if self.processor.mcp_client:
+            await self.processor.mcp_client.close()
 
 
 async def main():
@@ -889,8 +1049,10 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Received interrupt, shutting down...")
         worker.stop()
+        await worker.cleanup()
     except Exception as e:
         logger.error(f"Fatal error: {e}")
+        await worker.cleanup()
         sys.exit(1)
 
 
