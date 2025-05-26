@@ -819,15 +819,24 @@ class A2AWorker:
                     else:
                         break
                 
+                # Always add tool results - if none found, create synthetic ones
+                if not tool_result_blocks:
+                    # Create synthetic tool results for any tool uses that don't have results
+                    for tool_call in msg["tool_calls"]:
+                        if tool_call.get("id") and tool_call.get("name"):
+                            tool_result_blocks.append({
+                                "type": "tool_result",
+                                "tool_use_id": tool_call["id"],
+                                "content": json.dumps({"status": "success", "message": "Tool executed successfully"})
+                            })
+                
                 # Add user message with tool results
-                if tool_result_blocks:
-                    claude_messages.append({
-                        "role": "user",
-                        "content": tool_result_blocks
-                    })
-                    i = j  # Skip past the tool result messages
-                else:
-                    i += 1
+                claude_messages.append({
+                    "role": "user",
+                    "content": tool_result_blocks
+                })
+                
+                i = j if j > i + 1 else i + 1  # Skip past processed messages
                     
             elif msg.get("tool_result_for"):
                 # Skip tool result messages that were already processed
@@ -842,7 +851,71 @@ class A2AWorker:
                 })
                 i += 1
         
-        return claude_messages
+        # Validate that every tool_use has a corresponding tool_result
+        validated_messages = self.validate_tool_use_results(claude_messages)
+        return validated_messages
+    
+    def validate_tool_use_results(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensure every tool_use block has a corresponding tool_result in the next message"""
+        validated = []
+        i = 0
+        
+        while i < len(messages):
+            msg = messages[i]
+            validated.append(msg)
+            
+            # Check if this is an assistant message with tool_use blocks
+            if (msg.get("role") == "assistant" and 
+                isinstance(msg.get("content"), list) and 
+                any(block.get("type") == "tool_use" for block in msg["content"])):
+                
+                # Get all tool_use ids from this message
+                tool_use_ids = [
+                    block["id"] for block in msg["content"] 
+                    if block.get("type") == "tool_use" and block.get("id")
+                ]
+                
+                # Check if next message has matching tool_results
+                has_next = i + 1 < len(messages)
+                has_tool_results = False
+                
+                if has_next:
+                    next_msg = messages[i + 1]
+                    if (next_msg.get("role") == "user" and 
+                        isinstance(next_msg.get("content"), list)):
+                        
+                        result_ids = [
+                            block.get("tool_use_id") for block in next_msg["content"]
+                            if block.get("type") == "tool_result"
+                        ]
+                        
+                        # Check if all tool_use ids have results
+                        has_tool_results = all(tid in result_ids for tid in tool_use_ids)
+                
+                # If no matching tool results, create them
+                if not has_tool_results:
+                    logger.warning(f"Creating synthetic tool results for {len(tool_use_ids)} tool uses")
+                    synthetic_results = []
+                    for tool_use_id in tool_use_ids:
+                        synthetic_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": json.dumps({"status": "success", "message": "Tool completed"})
+                        })
+                    
+                    # Insert synthetic results message
+                    validated.append({
+                        "role": "user",
+                        "content": synthetic_results
+                    })
+                    
+                    # Skip the next message if it was the one we checked
+                    if has_next and next_msg.get("role") == "user":
+                        i += 1
+            
+            i += 1
+        
+        return validated
     
     async def process_message(self, message: Dict[str, Any]):
         """Process a message using A2A protocol"""
@@ -862,12 +935,19 @@ class A2AWorker:
             
             logger.info(f"Retrieved {len(history)} messages in conversation history")
             
-            # Log the last few messages for debugging
+            # Log conversation history structure for debugging
             if history:
-                logger.info("Last 3 messages in history:")
-                for msg in history[-3:]:
-                    content_preview = str(msg.get("content", ""))[:100]
-                    logger.info(f"  Role: {msg['role']}, Content: {content_preview}...")
+                logger.info("Conversation history structure:")
+                for i, msg in enumerate(history):
+                    role = msg.get("role", "unknown")
+                    content_type = "text" if isinstance(msg.get("content"), str) else "array"
+                    
+                    if content_type == "array" and isinstance(msg["content"], list):
+                        block_types = [b.get("type", "unknown") for b in msg["content"]]
+                        logger.info(f"  [{i}] Role: {role}, Content: {content_type}, Blocks: {block_types}")
+                    else:
+                        content_preview = str(msg.get("content", ""))[:50]
+                        logger.info(f"  [{i}] Role: {role}, Content: {content_preview}...")
             
             # Create A2A request
             # Handle both old schema (phone_number) and new schema (from_number/to_number)

@@ -59,6 +59,7 @@ The A2A Python worker:
 9. **Simplified Conversation History**: Retrieves all messages exchanged with a phone number, ordered by time
 10. **Tool History**: Correctly formats tool_use and tool_result blocks in conversation history
 11. **No Complex IDs**: Removed complex conversation_id/thread_id management - just uses phone number for continuity
+12. **Tool Result Validation**: Ensures every tool_use block has a corresponding tool_result block (creates synthetic ones if missing)
 
 ## Tools Available
 
