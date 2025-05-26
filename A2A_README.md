@@ -1,6 +1,6 @@
 # A2A Protocol Implementation
 
-This project now includes support for Google's A2A (Application-to-Agent) protocol, enabling standardized agent communication and interoperability.
+This project implements Google's A2A (Application-to-Agent) protocol, enabling standardized agent communication and interoperability.
 
 ## Overview
 
@@ -36,6 +36,28 @@ All tools are A2A-compliant with proper schemas:
 3. **sms_send**: SMS message sending
 4. **help_request**: Help request management
 
+## Database Schema
+
+The worker uses an enhanced database schema with these key columns:
+
+- `conversation_id` (UUID): Groups all messages in a conversation
+- `thread_id` (UUID): Enables sub-threads within conversations
+- `metadata` (JSONB): Stores tool results, A2A protocol data, and other flexible data
+- `from_number` / `to_number` (TEXT): Clear SMS routing information
+- `parent_message_id` (UUID): Links messages in a conversation chain
+
+### Running the Migration
+
+Before using the A2A worker, apply the database migration:
+
+```bash
+# Apply migration locally
+supabase migration up
+
+# Or run directly in production
+supabase db push
+```
+
 ## Usage
 
 ### Running the A2A Worker
@@ -54,15 +76,35 @@ npm run start:a2a-worker
 
 ### Environment Variables
 
-Add these A2A-specific variables to your `.env`:
+Required environment variables in your `.env`:
 
 ```env
+# Required
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+ANTHROPIC_API_KEY=your-anthropic-key
+
+# Optional
+POLL_INTERVAL=5
 A2A_AGENT_ID=message-analysis-agent
 A2A_AGENT_NAME=Message Analysis Agent
 ```
 
-### Example A2A Request
+### Setting Environment Variables for Deployment
 
+**For Heroku:**
+```bash
+heroku config:set SUPABASE_URL="your_url"
+heroku config:set SUPABASE_SERVICE_ROLE_KEY="your_key"  
+heroku config:set ANTHROPIC_API_KEY="your_key"
+```
+
+**For Railway/Render:**
+Add the environment variables in the dashboard settings.
+
+## Example A2A Interactions
+
+### Agent Discovery
 ```json
 {
   "jsonrpc": "2.0",
@@ -71,24 +113,7 @@ A2A_AGENT_NAME=Message Analysis Agent
 }
 ```
 
-Response:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "123",
-  "result": {
-    "agent_id": "message-analysis-agent",
-    "name": "Message Analysis Agent",
-    "version": "1.0.0",
-    "description": "AI agent for message analysis and task execution",
-    "tools": [...],
-    "interaction_modes": ["synchronous", "streaming"]
-  }
-}
-```
-
-### Tool Execution Example
-
+### Tool Execution
 ```json
 {
   "jsonrpc": "2.0",
@@ -101,46 +126,50 @@ Response:
       "month": 5
     },
     "context": {
-      "conversation_id": "conv-123"
+      "conversation_id": "uuid-here"
     }
+  }
+}
+```
+
+### Message Processing
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "789",
+  "method": "message.process",
+  "params": {
+    "content": "I need help scheduling a meeting",
+    "conversation_id": "uuid-here",
+    "history": []
   }
 }
 ```
 
 ## Benefits of A2A Protocol
 
-1. **Interoperability**: Agents from different frameworks can communicate
+1. **Interoperability**: Communicate with agents from different frameworks
 2. **Standardization**: Consistent message formats and tool definitions
 3. **Discovery**: Agents can discover each other's capabilities
-4. **Security**: Designed with enterprise-grade security in mind
-5. **Flexibility**: Supports sync, streaming, and async communication
+4. **Flexibility**: Supports sync, streaming, and async communication
+5. **Enterprise Ready**: Designed with security and scalability in mind
 
 ## Integration with Existing System
 
-The A2A worker maintains compatibility with the existing database schema and message flow:
+The A2A worker seamlessly integrates with your existing infrastructure:
 
-- Polls the same `conversation_messages` table
-- Processes messages with Claude AI
-- Executes tools and saves results
-- Sends SMS responses
+- Uses the same `conversation_messages` table with enhanced columns
+- Maintains conversation history through `conversation_id`
+- Stores A2A protocol data in the `metadata` JSONB column
+- Tracks tool usage and results for debugging
+- Compatible with existing SMS sending infrastructure
 
-The main difference is that all communication follows the A2A protocol standard, making the agent interoperable with other A2A-compliant systems.
+## Testing
 
-## Future Enhancements
+Use the included test client to verify A2A functionality:
 
-- Add support for agent-to-agent communication
-- Implement streaming responses
-- Add async push notifications
-- Enable dynamic skill querying
-- Support for external A2A agents
-
-## Deployment
-
-The application is configured to use the A2A Python worker by default. The `Procfile` specifies:
-
-```
-web: npm start
-worker: python python_worker_a2a.py
+```bash
+python test_a2a_client.py
 ```
 
-Make sure your deployment platform has Python installed and installs dependencies from `requirements.txt`.
+This demonstrates all supported A2A methods and tool executions.

@@ -555,10 +555,21 @@ class A2AWorker:
             
             messages = []
             for msg in result.data:
+                # Build Claude-compatible message format
                 role = "user" if msg["direction"] == "incoming" else "assistant"
+                content = msg["content"]
+                
+                # Handle tool results stored in metadata
+                if msg.get("metadata", {}).get("tool_use_id"):
+                    content = [{
+                        "type": "tool_result",
+                        "tool_use_id": msg["metadata"]["tool_use_id"],
+                        "content": json.dumps(msg["metadata"].get("tool_result", {}))
+                    }]
+                
                 messages.append({
                     "role": role,
-                    "content": msg["content"]
+                    "content": content
                 })
             
             return messages
@@ -603,12 +614,15 @@ class A2AWorker:
             
             # Save response
             response_data = {
+                "profile_id": message.get("profile_id"),
                 "conversation_id": message["conversation_id"],
+                "phone_number": message.get("phone_number", message.get("from_number")),
                 "content": response_text,
-                "from_number": message["to_number"],
-                "to_number": message["from_number"],
+                "from_number": message.get("to_number"),
+                "to_number": message.get("from_number"),
                 "direction": "outgoing",
                 "status": "completed",
+                "parent_message_id": message["id"],
                 "metadata": {
                     "a2a_result": result,
                     "protocol": "A2A"

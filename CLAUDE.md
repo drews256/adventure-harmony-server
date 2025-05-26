@@ -48,8 +48,6 @@ npm run dev:worker
 
 # Run the Python worker in development mode
 npm run dev:python-worker
-# or directly:
-python python_worker.py
 
 # Start the server in production mode
 npm start
@@ -59,8 +57,6 @@ npm run start:worker
 
 # Start the Python worker in production mode
 npm run start:python-worker
-# or directly:
-python python_worker.py
 ```
 
 ## Environment Variables
