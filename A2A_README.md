@@ -38,13 +38,14 @@ All tools are A2A-compliant with proper schemas:
 
 ## Database Schema
 
-The worker uses an enhanced database schema with these key columns:
+The worker uses a simplified approach for conversation management:
 
-- `conversation_id` (UUID): Groups all messages in a conversation
-- `thread_id` (UUID): Enables sub-threads within conversations
-- `metadata` (JSONB): Stores tool results, A2A protocol data, and other flexible data
-- `from_number` / `to_number` (TEXT): Clear SMS routing information
-- `parent_message_id` (UUID): Links messages in a conversation chain
+- `phone_number` (TEXT): The primary identifier for conversations - all messages to/from a number form the conversation
+- `direction` (TEXT): Whether the message is 'incoming' or 'outgoing'
+- `parent_message_id` (UUID): Links a response to the message it's replying to
+- `metadata` (JSONB): Optional - stores tool results and A2A protocol data
+- `from_number` / `to_number` (TEXT): Optional - additional routing information
+- `conversation_id` / `thread_id` (UUID): Optional - only used if explicitly set by the system
 
 ### Running the Migration
 
@@ -158,12 +159,20 @@ Add the environment variables in the dashboard settings.
 
 The A2A worker seamlessly integrates with your existing infrastructure:
 
-- Uses the same `conversation_messages` table with enhanced columns
-- Maintains conversation history through `conversation_id`
-- Stores A2A protocol data in the `metadata` JSONB column
+- Uses the same `conversation_messages` table
+- Retrieves conversation history by phone number - all messages to/from that number
+- Stores A2A protocol data in the `metadata` JSONB column (if available)
 - Tracks tool usage and results for debugging
 - Sends SMS messages via Supabase Edge Function: `supabase.functions.invoke('send-sms', ...)`
 - Sends error messages to users when processing fails
+
+### Simplified Conversation Management
+
+Instead of complex conversation_id and thread_id tracking, the worker simply:
+1. Gets all previous messages exchanged with a phone number
+2. Orders them by creation time
+3. Formats them properly for Claude (including tool use/results)
+4. Provides the full context of the SMS conversation
 
 ### SMS Sending
 

@@ -582,34 +582,34 @@ class A2AWorker:
             logger.error(f"Error fetching pending message: {e}")
             return None
     
-    async def get_conversation_history(self, conversation_id: str) -> List[Dict[str, Any]]:
-        """Fetch conversation history"""
+    async def get_conversation_history_by_phone(self, phone_number: str, current_message_id: str) -> List[Dict[str, Any]]:
+        """Fetch all conversation history with a specific phone number
+        
+        This simplified approach treats all messages to/from a phone number as one continuous
+        conversation, which makes more sense for SMS where users expect their entire message
+        history to be available as context.
+        """
         try:
-            # Check if conversation_id column exists by trying to query with it
-            try:
-                result = supabase.table("conversation_messages") \
-                    .select("*") \
-                    .eq("conversation_id", conversation_id) \
-                    .order("created_at", desc=False) \
-                    .execute()
-                
-                if not result.data:
-                    # No messages found with this conversation_id
-                    logger.info(f"No messages found for conversation_id: {conversation_id}")
-                    return []
-                
-                logger.info(f"Found {len(result.data)} messages for conversation_id: {conversation_id}")
-                    
-            except Exception as e:
-                # If conversation_id doesn't exist, fall back to parent chain method
-                logger.info("conversation_id column not found, using parent chain method")
-                return await self.get_conversation_history_by_parent_chain(conversation_id)
+            # Get all messages to/from this phone number
+            # We use phone_number field which should always be present
+            result = supabase.table("conversation_messages") \
+                .select("*") \
+                .eq("phone_number", phone_number) \
+                .neq("id", current_message_id) \
+                .order("created_at", desc=False) \
+                .execute()
+            
+            if not result.data:
+                logger.info(f"No previous messages found for phone number: {phone_number}")
+                return []
+            
+            logger.info(f"Found {len(result.data)} messages for phone number: {phone_number}")
             
             # Build conversation history with proper tool handling
             return self.build_conversation_history_with_tools(result.data)
             
         except Exception as e:
-            logger.error(f"Error fetching conversation history: {e}")
+            logger.error(f"Error fetching conversation history by phone: {e}")
             return []
     
     def build_conversation_history_with_tools(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -694,38 +694,6 @@ class A2AWorker:
         
         return claude_messages
     
-    async def get_conversation_history_by_parent_chain(self, message_id: str) -> List[Dict[str, Any]]:
-        """Fetch conversation history by following parent chain (fallback for old schema)"""
-        try:
-            messages = []
-            current_id = message_id
-            
-            # Follow parent chain to build history
-            while current_id:
-                result = supabase.table("conversation_messages") \
-                    .select("*") \
-                    .eq("id", current_id) \
-                    .single() \
-                    .execute()
-                
-                if result.data:
-                    msg = result.data
-                    messages.insert(0, msg)  # Insert at beginning to maintain order
-                    current_id = msg.get("parent_message_id")
-                else:
-                    break
-            
-            # Remove the current message (last one) from history
-            if messages:
-                messages = messages[:-1]
-            
-            # Build conversation history with proper tool handling
-            return self.build_conversation_history_with_tools(messages)
-            
-        except Exception as e:
-            logger.error(f"Error fetching conversation history by parent chain: {e}")
-            return []
-    
     async def process_message(self, message: Dict[str, Any]):
         """Process a message using A2A protocol"""
         try:
@@ -735,16 +703,12 @@ class A2AWorker:
                 .eq("id", message["id"]) \
                 .execute()
             
-            # Get conversation history
-            # Use conversation_id if available, otherwise use message id for parent chain lookup
-            conversation_id = message.get("conversation_id")
+            # Get conversation history based on phone number
+            # This gives us all the back-and-forth messages with this phone number
+            phone_number = message.get("phone_number", "")
             
-            if conversation_id:
-                logger.info(f"Fetching conversation history for conversation_id: {conversation_id}")
-                history = await self.get_conversation_history(conversation_id)
-            else:
-                logger.info(f"No conversation_id found, using parent chain from message_id: {message['id']}")
-                history = await self.get_conversation_history_by_parent_chain(message["id"])
+            logger.info(f"Fetching conversation history for phone number: {phone_number}")
+            history = await self.get_conversation_history_by_phone(phone_number, message["id"])
             
             logger.info(f"Retrieved {len(history)} messages in conversation history")
             
@@ -783,50 +747,37 @@ class A2AWorker:
             result = a2a_response.result
             response_text = result.get("text", "")
             
-            # Save response
-            # Handle both old and new schema
-            sender_number = message.get("from_number") or message.get("phone_number")
-            recipient_number = message.get("to_number") or message.get("phone_number")
+            # Save response - keep it simple
+            phone_number = message.get("phone_number", "")
             
             response_data = {
                 "profile_id": message.get("profile_id"),
-                "phone_number": sender_number,  # Always include for backward compatibility
+                "phone_number": phone_number,  # Same phone number for conversation continuity
                 "content": response_text,
                 "direction": "outgoing",
                 "status": "completed",
                 "parent_message_id": message["id"],
-                "metadata": {
-                    "a2a_result": result,
-                    "protocol": "A2A"
-                },
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             
-            # Always try to maintain conversation continuity
-            # Set conversation_id - use existing or generate new one
-            if message.get("conversation_id"):
-                response_data["conversation_id"] = message["conversation_id"]
-            elif "conversation_id" in message:  # Column exists but value is None
-                # Generate a new conversation_id for this thread
-                new_conversation_id = str(uuid.uuid4())
-                response_data["conversation_id"] = new_conversation_id
-                
-                # Update the original message with the conversation_id
-                try:
-                    supabase.table("conversation_messages") \
-                        .update({"conversation_id": new_conversation_id}) \
-                        .eq("id", message["id"]) \
-                        .execute()
-                    logger.info(f"Created new conversation_id: {new_conversation_id}")
-                except Exception as e:
-                    logger.warning(f"Could not update original message with conversation_id: {e}")
+            # Only add optional fields if they exist in the original message
+            if "metadata" in message:
+                response_data["metadata"] = {
+                    "a2a_result": result,
+                    "protocol": "A2A"
+                }
             
-            # Add other new columns if they exist
+            # Only include these fields if they exist in the database schema
+            if "conversation_id" in message and message.get("conversation_id"):
+                response_data["conversation_id"] = message["conversation_id"]
+            
             if "from_number" in message:
-                response_data["from_number"] = recipient_number  # Swap for response
-                response_data["to_number"] = sender_number
-            if "thread_id" in message:
-                response_data["thread_id"] = message.get("thread_id")
+                # For outgoing messages: from = system, to = user's phone
+                response_data["from_number"] = message.get("to_number", "")  # System's number
+                response_data["to_number"] = message.get("from_number", phone_number)  # User's number
+                
+            if "thread_id" in message and message.get("thread_id"):
+                response_data["thread_id"] = message["thread_id"]
             
             supabase.table("conversation_messages").insert(response_data).execute()
             
