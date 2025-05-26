@@ -53,6 +53,7 @@ The A2A Python worker:
 3. **System Prompt**: Now includes the exact same system prompt as the TypeScript version
 4. **SMS Tool Filtering**: SMS tool only activates when explicitly mentioned (not for every message)
 5. **Error Handling**: Uses `error_message` column when `metadata` doesn't exist
+6. **Tool Choice Fix**: Only passes `tool_choice` parameter when tools are actually available
 
 ## System Prompt Context
 

@@ -482,14 +482,20 @@ class A2AMessageProcessor:
     Here's my current message: {content}"""
             
             # Call Claude with enhanced prompt
-            response = anthropic.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1000,
-                temperature=0.7,
-                messages=conversation_history + [{"role": "user", "content": enhanced_prompt}],
-                tools=claude_tools if claude_tools else None,
-                tool_choice={"type": "auto", "disable_parallel_tool_use": False}
-            )
+            # Build the request parameters
+            request_params = {
+                "model": "claude-3-5-sonnet-20241022",
+                "max_tokens": 1000,
+                "temperature": 0.7,
+                "messages": conversation_history + [{"role": "user", "content": enhanced_prompt}]
+            }
+            
+            # Only add tools and tool_choice if we have tools
+            if claude_tools:
+                request_params["tools"] = claude_tools
+                request_params["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": False}
+            
+            response = anthropic.messages.create(**request_params)
             
             # Process Claude's response
             result = {
@@ -549,6 +555,7 @@ class A2AMessageProcessor:
         if any(word in content_lower for word in ["send", "text", "sms", "message someone", "notify"]):
             tools.append("sms_send")
         
+        # If no tools matched, return empty list (Claude will just respond with text)
         return tools
 
 
