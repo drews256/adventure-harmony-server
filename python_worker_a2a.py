@@ -452,13 +452,43 @@ class A2AMessageProcessor:
                         "input_schema": tool.input_schema
                     })
             
-            # Call Claude
+            # Build enhanced prompt with system instructions
+            enhanced_prompt = f"""
+    Todays Date and Time: {datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
+
+    The primary interface you're corresponding with is through text messages. 
+
+    It's relatively important that you keep your responses short and to the point to that we can handle it like the text message that it is.
+
+    Also - don't refer to the tools by name - that's confusing. Refer to the tools using concepts that are relatable to someone running an outfitting business.  
+
+    You're corresponding with a client who is managing an outfitter, that outfitter has a website and accepts bookings (also called orders or orderlines). 
+    They present those offerings as listings in a plugin page on their websites and we accept bookings in many ways. 
+    We can create bookings through the plugin on their website, or we can create bookings through the phone, they can also create manual bookings through the website. 
+    Sometimes they create completely custom bookings that don't relate to listings too.  
+
+    I'm reviewing our conversation history. Please reference ALL previous messages in your response, including ones that might seem to be from a separate conversation. 
+
+    Don't be confused by messages that seem unrelated - I expect you to have access to my entire message history, so treat all previous messages as relevant context.
+
+    Please don't tell me that you're following my instructions - Please just follow them. For example - I don't need you to tell me that you're responding in a way that works for a text message, keeping the response short. Or anything like that.
+
+    IMPORTANT: Before using tools, check if you've already used similar tools in previous messages. If relevant tool results already exist in our conversation history, use that information instead of making duplicate tool calls. This will save time and provide a better experience.
+
+    For example, if you see I previously asked about generating a token and you already fetched that information, don't fetch it again - just reference the existing results and continue the conversation.
+
+    Also - tool runs in this context occur immediately when you respond with a tool call. Please don't ask me for permission to run tools - if you need a tool run - please run it. 
+
+    Here's my current message: {content}"""
+            
+            # Call Claude with enhanced prompt
             response = anthropic.messages.create(
                 model="claude-3-5-sonnet-20241022",
-                max_tokens=4096,
-                messages=conversation_history + [{"role": "user", "content": content}],
+                max_tokens=1000,
+                temperature=0.7,
+                messages=conversation_history + [{"role": "user", "content": enhanced_prompt}],
                 tools=claude_tools if claude_tools else None,
-                system="You are a helpful assistant analyzing messages and determining appropriate actions."
+                tool_choice={"type": "auto", "disable_parallel_tool_use": False}
             )
             
             # Process Claude's response
@@ -515,8 +545,9 @@ class A2AMessageProcessor:
         if any(word in content_lower for word in ["help", "assist", "support", "problem"]):
             tools.append("help_request")
         
-        # Always include SMS tool
-        tools.append("sms_send")
+        # Only include SMS tool if explicitly mentioned
+        if any(word in content_lower for word in ["send", "text", "sms", "message someone", "notify"]):
+            tools.append("sms_send")
         
         return tools
 
@@ -547,11 +578,17 @@ class A2AWorker:
     async def get_conversation_history(self, conversation_id: str) -> List[Dict[str, Any]]:
         """Fetch conversation history"""
         try:
-            result = supabase.table("conversation_messages") \
-                .select("*") \
-                .eq("conversation_id", conversation_id) \
-                .order("created_at", desc=False) \
-                .execute()
+            # Check if conversation_id column exists by trying to query with it
+            try:
+                result = supabase.table("conversation_messages") \
+                    .select("*") \
+                    .eq("conversation_id", conversation_id) \
+                    .order("created_at", desc=False) \
+                    .execute()
+            except Exception as e:
+                # If conversation_id doesn't exist, fall back to parent chain method
+                logger.info("conversation_id column not found, using parent chain method")
+                return await self.get_conversation_history_by_parent_chain(conversation_id)
             
             messages = []
             for msg in result.data:
@@ -577,6 +614,51 @@ class A2AWorker:
             logger.error(f"Error fetching conversation history: {e}")
             return []
     
+    async def get_conversation_history_by_parent_chain(self, message_id: str) -> List[Dict[str, Any]]:
+        """Fetch conversation history by following parent chain (fallback for old schema)"""
+        try:
+            messages = []
+            current_id = message_id
+            
+            # Follow parent chain to build history
+            while current_id:
+                result = supabase.table("conversation_messages") \
+                    .select("*") \
+                    .eq("id", current_id) \
+                    .single() \
+                    .execute()
+                
+                if result.data:
+                    msg = result.data
+                    messages.insert(0, msg)  # Insert at beginning to maintain order
+                    current_id = msg.get("parent_message_id")
+                else:
+                    break
+            
+            # Convert to Claude format
+            claude_messages = []
+            for msg in messages[:-1]:  # Exclude current message
+                role = "user" if msg["direction"] == "incoming" else "assistant"
+                content = msg["content"]
+                
+                # Handle tool results
+                if msg.get("tool_result_for"):
+                    content = [{
+                        "type": "tool_result",
+                        "tool_use_id": msg["tool_result_for"],
+                        "content": json.dumps(msg.get("tool_results", {}))
+                    }]
+                
+                claude_messages.append({
+                    "role": role,
+                    "content": content
+                })
+            
+            return claude_messages
+        except Exception as e:
+            logger.error(f"Error fetching conversation history by parent chain: {e}")
+            return []
+    
     async def process_message(self, message: Dict[str, Any]):
         """Process a message using A2A protocol"""
         try:
@@ -587,9 +669,15 @@ class A2AWorker:
                 .execute()
             
             # Get conversation history
-            history = await self.get_conversation_history(message["conversation_id"])
+            # Use conversation_id if available, otherwise use message id
+            conversation_id = message.get("conversation_id", message["id"])
+            history = await self.get_conversation_history(conversation_id)
             
             # Create A2A request
+            # Handle both old schema (phone_number) and new schema (from_number/to_number)
+            from_number = message.get("from_number") or message.get("phone_number")
+            to_number = message.get("to_number") or message.get("phone_number")
+            
             a2a_request = A2AMessage(
                 jsonrpc="2.0",
                 id=str(uuid.uuid4()),
@@ -597,8 +685,9 @@ class A2AWorker:
                 params={
                     "content": message["content"],
                     "history": history,
-                    "conversation_id": message["conversation_id"],
-                    "from_number": message["from_number"]
+                    "conversation_id": message.get("conversation_id", message["id"]),
+                    "from_number": from_number,
+                    "to_number": to_number
                 }
             )
             
@@ -613,13 +702,14 @@ class A2AWorker:
             response_text = result.get("text", "")
             
             # Save response
+            # Handle both old and new schema
+            sender_number = message.get("from_number") or message.get("phone_number")
+            recipient_number = message.get("to_number") or message.get("phone_number")
+            
             response_data = {
                 "profile_id": message.get("profile_id"),
-                "conversation_id": message["conversation_id"],
-                "phone_number": message.get("phone_number", message.get("from_number")),
+                "phone_number": sender_number,  # Always include for backward compatibility
                 "content": response_text,
-                "from_number": message.get("to_number"),
-                "to_number": message.get("from_number"),
                 "direction": "outgoing",
                 "status": "completed",
                 "parent_message_id": message["id"],
@@ -627,9 +717,17 @@ class A2AWorker:
                     "a2a_result": result,
                     "protocol": "A2A"
                 },
-                "thread_id": message.get("thread_id"),
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
+            
+            # Add new columns if they exist in the database
+            if "conversation_id" in message:
+                response_data["conversation_id"] = message["conversation_id"]
+            if "from_number" in message:
+                response_data["from_number"] = recipient_number  # Swap for response
+                response_data["to_number"] = sender_number
+            if "thread_id" in message:
+                response_data["thread_id"] = message.get("thread_id")
             
             supabase.table("conversation_messages").insert(response_data).execute()
             
@@ -640,14 +738,25 @@ class A2AWorker:
                 .execute()
             
             # Send SMS (placeholder)
-            logger.info(f"Sending SMS to {message['from_number']}: {response_text}")
+            # Get the recipient number (incoming message's sender)
+            recipient = message.get("from_number") or message.get("phone_number")
+            logger.info(f"Sending SMS to {recipient}: {response_text}")
             
         except Exception as e:
             logger.error(f"Error processing message: {e}")
             
             # Update status to failed
+            error_update = {"status": "failed"}
+            
+            # Only add metadata if column exists
+            if "metadata" in message:
+                error_update["metadata"] = {"error": str(e)}
+            else:
+                # Use error_message column for old schema
+                error_update["error_message"] = str(e)
+            
             supabase.table("conversation_messages") \
-                .update({"status": "failed", "metadata": {"error": str(e)}}) \
+                .update(error_update) \
                 .eq("id", message["id"]) \
                 .execute()
     
