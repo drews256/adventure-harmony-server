@@ -733,30 +733,36 @@ class A2AWorker:
             return None
     
     async def get_conversation_history_by_phone(self, phone_number: str, current_message_id: str) -> List[Dict[str, Any]]:
-        """Fetch all conversation history with a specific phone number
+        """Fetch conversation history with a specific phone number, limited to last 50 messages
         
         This simplified approach treats all messages to/from a phone number as one continuous
         conversation, which makes more sense for SMS where users expect their entire message
         history to be available as context.
         """
         try:
-            # Get all messages to/from this phone number
+            # Get last 50 messages to/from this phone number (excluding current message)
             # We use phone_number field which should always be present
             result = supabase.table("conversation_messages") \
                 .select("*") \
                 .eq("phone_number", phone_number) \
                 .neq("id", current_message_id) \
-                .order("created_at", desc=False) \
+                .order("created_at", desc=True) \
+                .limit(50) \
                 .execute()
             
             if not result.data:
                 logger.info(f"No previous messages found for phone number: {phone_number}")
                 return []
             
-            logger.info(f"Found {len(result.data)} messages for phone number: {phone_number}")
+            # Reverse to get chronological order (oldest first)
+            messages = list(reversed(result.data))
+            logger.info(f"Found {len(messages)} messages for phone number: {phone_number} (limited to last 50)")
             
             # Build conversation history with proper tool handling
-            return self.build_conversation_history_with_tools(result.data)
+            claude_messages = self.build_conversation_history_with_tools(messages)
+            
+            # Apply token-based filtering
+            return self.filter_messages_by_tokens(claude_messages)
             
         except Exception as e:
             logger.error(f"Error fetching conversation history by phone: {e}")
@@ -916,6 +922,57 @@ class A2AWorker:
             i += 1
         
         return validated
+    
+    def estimate_token_count(self, messages: List[Dict[str, Any]]) -> int:
+        """Estimate token count for messages (rough approximation)"""
+        total_chars = 0
+        
+        for msg in messages:
+            # Count role
+            total_chars += len(msg.get("role", ""))
+            
+            # Count content
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total_chars += len(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        # Count all string values in the block
+                        for value in block.values():
+                            if isinstance(value, str):
+                                total_chars += len(value)
+        
+        # Rough approximation: ~4 characters per token
+        return total_chars // 4
+    
+    def filter_messages_by_tokens(self, messages: List[Dict[str, Any]], max_tokens: int = 40000) -> List[Dict[str, Any]]:
+        """Filter messages to stay under token limit, reducing from the beginning"""
+        if not messages:
+            return messages
+        
+        # Start with all messages
+        filtered_messages = messages[:]
+        
+        # Keep reducing from the beginning until we're under the limit
+        while len(filtered_messages) > 0:
+            token_count = self.estimate_token_count(filtered_messages)
+            
+            if token_count <= max_tokens:
+                break
+            
+            # Remove the oldest message (first in the list)
+            filtered_messages = filtered_messages[1:]
+            
+            # Log the reduction
+            if len(filtered_messages) % 10 == 0:  # Log every 10 reductions
+                logger.info(f"Reduced conversation history to {len(filtered_messages)} messages (~{token_count} tokens)")
+        
+        final_token_count = self.estimate_token_count(filtered_messages)
+        if len(filtered_messages) < len(messages):
+            logger.info(f"Filtered conversation history from {len(messages)} to {len(filtered_messages)} messages (~{final_token_count} tokens)")
+        
+        return filtered_messages
     
     async def process_message(self, message: Dict[str, Any]):
         """Process a message using A2A protocol"""
