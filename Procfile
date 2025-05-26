@@ -1,2 +1,2 @@
 web: npm start
-worker: node dist/worker-entry.js 
+worker: python python_worker_a2a.py 
