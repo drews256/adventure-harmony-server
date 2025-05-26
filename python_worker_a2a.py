@@ -744,10 +744,28 @@ class A2AWorker:
                 .eq("id", message["id"]) \
                 .execute()
             
-            # Send SMS (placeholder)
+            # Send SMS via Supabase function
             # Get the recipient number (incoming message's sender)
             recipient = message.get("from_number") or message.get("phone_number")
-            logger.info(f"Sending SMS to {recipient}: {response_text}")
+            
+            if response_text and recipient:
+                try:
+                    # Use Supabase function to send SMS
+                    sms_result = supabase.functions.invoke(
+                        "send-sms",
+                        invoke_options={
+                            "body": {
+                                "to": recipient,
+                                "message": response_text
+                            }
+                        }
+                    )
+                    logger.info(f"SMS sent to {recipient}: {response_text[:100]}...")
+                except Exception as sms_error:
+                    logger.error(f"Failed to send SMS: {sms_error}")
+                    # Don't fail the whole process if SMS fails
+            else:
+                logger.warning(f"No SMS sent - recipient: {recipient}, has_response: {bool(response_text)}")
             
         except Exception as e:
             logger.error(f"Error processing message: {e}")
@@ -766,6 +784,31 @@ class A2AWorker:
                 .update(error_update) \
                 .eq("id", message["id"]) \
                 .execute()
+            
+            # Send error SMS to user
+            recipient = message.get("from_number") or message.get("phone_number")
+            if recipient:
+                try:
+                    error_message = "I apologize, but I encountered an error processing your message. Please try again or contact support if the issue persists."
+                    
+                    # Include more details for specific errors
+                    if "rate_limit" in str(e).lower():
+                        error_message = "I'm currently experiencing high demand. Please try again in a few moments."
+                    elif "connection" in str(e).lower() or "network" in str(e).lower():
+                        error_message = "I'm having trouble connecting to services. Please try again shortly."
+                    
+                    sms_result = supabase.functions.invoke(
+                        "send-sms",
+                        invoke_options={
+                            "body": {
+                                "to": recipient,
+                                "message": error_message
+                            }
+                        }
+                    )
+                    logger.info(f"Error SMS sent to {recipient}")
+                except Exception as sms_error:
+                    logger.error(f"Failed to send error SMS: {sms_error}")
     
     async def process_loop(self):
         """Main processing loop"""

@@ -54,6 +54,8 @@ The A2A Python worker:
 4. **SMS Tool Filtering**: SMS tool only activates when explicitly mentioned (not for every message)
 5. **Error Handling**: Uses `error_message` column when `metadata` doesn't exist
 6. **Tool Choice Fix**: Only passes `tool_choice` parameter when tools are actually available
+7. **SMS Sending**: Now actually sends SMS messages using `supabase.functions.invoke('send-sms', ...)`
+8. **Error SMS**: Sends user-friendly error messages when processing fails
 
 ## System Prompt Context
 

@@ -162,7 +162,31 @@ The A2A worker seamlessly integrates with your existing infrastructure:
 - Maintains conversation history through `conversation_id`
 - Stores A2A protocol data in the `metadata` JSONB column
 - Tracks tool usage and results for debugging
-- Compatible with existing SMS sending infrastructure
+- Sends SMS messages via Supabase Edge Function: `supabase.functions.invoke('send-sms', ...)`
+- Sends error messages to users when processing fails
+
+### SMS Sending
+
+The worker uses the same Supabase Edge Function as the TypeScript version:
+
+```python
+supabase.functions.invoke(
+    "send-sms",
+    invoke_options={
+        "body": {
+            "to": phone_number,
+            "message": text_content
+        }
+    }
+)
+```
+
+### Error Handling
+
+When errors occur, the worker:
+1. Updates the message status to 'failed' with error details
+2. Sends a user-friendly error message via SMS
+3. Provides specific messages for common errors (rate limits, connection issues)
 
 ## Testing
 
