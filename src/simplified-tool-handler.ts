@@ -307,6 +307,11 @@ export async function processToolCallsFromClaude(responseContent: any[],
           block.input.formTitle,
           block.input.businessName
         );
+      } else if (block.name === 'SMS_SendMessage') {
+        console.log('Handling SMS send message tool locally');
+        const { SMSTool } = await import('./services/sms-tool');
+        const smsTool = new SMSTool(supabase);
+        toolResult = await smsTool.sendSMS(block.input);
       } else {
         // Use withRetry for more comprehensive retry handling with exponential backoff for MCP tools
         toolResult = await withRetry(
