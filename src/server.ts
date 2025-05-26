@@ -241,6 +241,23 @@ app.get('/calendar/:calendarId/ical', async (req, res) => {
     console.error('Error retrieving calendar iCal:', error);
     res.status(500).send('Internal server error');
   }
+// Calendar data endpoint for React component
+app.get('/api/calendar/:calendarId/data', async (req, res) => {
+  try {
+    const { calendarId } = req.params;
+    
+    const calendarData = await calendarTool.getCalendarData(calendarId);
+    
+    if (!calendarData) {
+      return res.status(404).json({ error: 'Calendar not found' });
+    }
+    
+    res.json(calendarData);
+  } catch (error) {
+    console.error('Error retrieving calendar data:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 });
 
 // Help request endpoints

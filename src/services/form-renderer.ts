@@ -1,6 +1,6 @@
 export class FormRenderer {
   /**
-   * Generate the form page HTML that loads form config dynamically
+   * Generate the form page HTML that loads form config dynamically with shadcn/ui styling
    */
   static generateFormPage(): string {
     return `<!DOCTYPE html>
@@ -14,203 +14,19 @@ export class FormRenderer {
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
+    <!-- RJSF -->
+    <script crossorigin src="https://unpkg.com/@rjsf/core@5.18.4/dist/core.umd.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@rjsf/utils@5.18.4/dist/utils.umd.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@rjsf/validator-ajv8@5.18.4/dist/validator-ajv8.umd.production.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
     <style>
-        :root {
-            --primary-color: #2563eb;
-            --primary-dark: #1d4ed8;
-            --secondary-color: #f1f5f9;
-            --success-color: #10b981;
-            --error-color: #ef4444;
-            --text-primary: #0f172a;
-            --text-secondary: #64748b;
-            --border-color: #e2e8f0;
-            --shadow-light: 0 1px 3px rgba(0, 0, 0, 0.05);
-            --shadow-medium: 0 4px 6px rgba(0, 0, 0, 0.07);
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         
         * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            color: var(--text-primary);
-            line-height: 1.6;
-            min-height: 100vh;
-            padding: 1rem;
-        }
-        
-        .form-container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 16px;
-            box-shadow: var(--shadow-medium);
-            overflow: hidden;
-            animation: slideUp 0.6s ease-out;
-        }
-        
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .form-header {
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
-            color: white;
-            padding: 2rem;
-            text-align: center;
-        }
-        
-        .form-header h1 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-        
-        .form-content {
-            padding: 2rem;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 3rem;
-            color: var(--text-secondary);
-        }
-        
-        .error {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-            color: #dc2626;
-            padding: 1rem;
-            border-radius: 8px;
-            margin: 1rem;
-        }
-        
-        .field-group {
-            margin-bottom: 1.5rem;
-        }
-        
-        label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: var(--text-primary);
-        }
-        
-        input, select, textarea {
-            width: 100%;
-            padding: 0.75rem 1rem;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-            background: white;
-            font-family: inherit;
-        }
-        
-        input:focus, select:focus, textarea:focus {
-            outline: none;
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-        }
-        
-        textarea {
-            resize: vertical;
-            min-height: 100px;
-        }
-        
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .checkbox-group input {
-            width: auto;
-        }
-        
-        .help-text {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            margin-top: 0.25rem;
-        }
-        
-        .error-text {
-            color: var(--error-color);
-            font-size: 0.875rem;
-            margin-top: 0.25rem;
-        }
-        
-        .submit-button {
-            width: 100%;
-            padding: 1rem;
-            background: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-top: 1rem;
-        }
-        
-        .submit-button:hover {
-            background: var(--primary-dark);
-            transform: translateY(-1px);
-            box-shadow: var(--shadow-medium);
-        }
-        
-        .submit-button:disabled {
-            background: var(--text-secondary);
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .success-message {
-            background: var(--success-color);
-            color: white;
-            padding: 2rem;
-            text-align: center;
-            border-radius: 8px;
-            margin: 2rem 0;
-            animation: slideUp 0.6s ease-out;
-        }
-        
-        .spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        @media (max-width: 768px) {
-            body {
-                padding: 0.5rem;
-            }
-            
-            .form-header {
-                padding: 1.5rem;
-            }
-            
-            .form-content {
-                padding: 1.5rem;
-            }
-            
-            .form-header h1 {
-                font-size: 1.25rem;
-            }
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
     </style>
 </head>
@@ -219,11 +35,225 @@ export class FormRenderer {
     
     <script>
         const { useState, useEffect, createElement: h } = React;
+        const Form = window.rjsf.default;
+        const validator = window.validatorAjv8.default;
+        
+        // Utility function to combine classes
+        const cn = (...classes) => classes.filter(Boolean).join(' ');
+        
+        // Custom shadcn-styled widgets
+        const TextWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, onBlur, onFocus, options, placeholder } = props;
+          return h('input', {
+            id,
+            type: 'text',
+            className: 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+            disabled: disabled || readonly,
+            value: value || '',
+            onChange: (e) => onChange(e.target.value),
+            onBlur: onBlur && ((e) => onBlur(id, e.target.value)),
+            onFocus: onFocus && ((e) => onFocus(id, e.target.value)),
+            placeholder: placeholder || options?.placeholder
+          });
+        };
+        
+        const EmailWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, onBlur, onFocus, options } = props;
+          return h('input', {
+            id,
+            type: 'email',
+            className: 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+            disabled: disabled || readonly,
+            value: value || '',
+            onChange: (e) => onChange(e.target.value),
+            onBlur: onBlur && ((e) => onBlur(id, e.target.value)),
+            onFocus: onFocus && ((e) => onFocus(id, e.target.value)),
+            placeholder: options?.placeholder
+          });
+        };
+        
+        const PasswordWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, onBlur, onFocus, options } = props;
+          return h('input', {
+            id,
+            type: 'password',
+            className: 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+            disabled: disabled || readonly,
+            value: value || '',
+            onChange: (e) => onChange(e.target.value),
+            onBlur: onBlur && ((e) => onBlur(id, e.target.value)),
+            onFocus: onFocus && ((e) => onFocus(id, e.target.value)),
+            placeholder: options?.placeholder
+          });
+        };
+        
+        const NumberWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, onBlur, onFocus, options, schema } = props;
+          return h('input', {
+            id,
+            type: 'number',
+            className: 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+            disabled: disabled || readonly,
+            value: value || '',
+            onChange: (e) => onChange(e.target.value ? Number(e.target.value) : undefined),
+            onBlur: onBlur && ((e) => onBlur(id, e.target.value ? Number(e.target.value) : undefined)),
+            onFocus: onFocus && ((e) => onFocus(id, e.target.value ? Number(e.target.value) : undefined)),
+            placeholder: options?.placeholder,
+            min: schema?.minimum,
+            max: schema?.maximum,
+            step: schema?.multipleOf
+          });
+        };
+        
+        const TextareaWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, onBlur, onFocus, options } = props;
+          return h('textarea', {
+            id,
+            className: 'flex min-h-[80px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+            disabled: disabled || readonly,
+            value: value || '',
+            onChange: (e) => onChange(e.target.value),
+            onBlur: onBlur && ((e) => onBlur(id, e.target.value)),
+            onFocus: onFocus && ((e) => onFocus(id, e.target.value)),
+            placeholder: options?.placeholder,
+            rows: options?.rows || 5
+          });
+        };
+        
+        const SelectWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, onBlur, onFocus, options } = props;
+          const { enumOptions } = options;
+          
+          return h('select', {
+            id,
+            className: 'flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+            disabled: disabled || readonly,
+            value: value || '',
+            onChange: (e) => onChange(e.target.value),
+            onBlur: onBlur && ((e) => onBlur(id, e.target.value)),
+            onFocus: onFocus && ((e) => onFocus(id, e.target.value))
+          },
+            h('option', { value: '' }, 'Select...'),
+            enumOptions && enumOptions.map(({ value, label }) => 
+              h('option', { key: value, value }, label)
+            )
+          );
+        };
+        
+        const CheckboxWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, label, schema } = props;
+          
+          return h('div', { className: 'flex items-center space-x-2' },
+            h('input', {
+              id,
+              type: 'checkbox',
+              className: 'peer h-4 w-4 shrink-0 rounded-sm border border-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+              disabled: disabled || readonly,
+              checked: value || false,
+              onChange: (e) => onChange(e.target.checked)
+            }),
+            schema.title && h('label', {
+              htmlFor: id,
+              className: 'text-sm font-normal cursor-pointer'
+            }, schema.title)
+          );
+        };
+        
+        const DateWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, onBlur, onFocus } = props;
+          return h('input', {
+            id,
+            type: 'date',
+            className: 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+            disabled: disabled || readonly,
+            value: value || '',
+            onChange: (e) => onChange(e.target.value),
+            onBlur: onBlur && ((e) => onBlur(id, e.target.value)),
+            onFocus: onFocus && ((e) => onFocus(id, e.target.value))
+          });
+        };
+        
+        const DateTimeWidget = (props) => {
+          const { id, disabled, readonly, value, onChange, onBlur, onFocus } = props;
+          return h('input', {
+            id,
+            type: 'datetime-local',
+            className: 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+            disabled: disabled || readonly,
+            value: value || '',
+            onChange: (e) => onChange(e.target.value),
+            onBlur: onBlur && ((e) => onBlur(id, e.target.value)),
+            onFocus: onFocus && ((e) => onFocus(id, e.target.value))
+          });
+        };
+        
+        const FieldTemplate = (props) => {
+          const {
+            id,
+            label,
+            required,
+            disabled,
+            readonly,
+            errors,
+            help,
+            description,
+            children,
+          } = props;
+
+          return h('div', { className: cn('mb-4', errors && errors.length > 0 && 'mb-6') },
+            label && h('label', {
+              htmlFor: id,
+              className: 'text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 mb-2 block'
+            },
+              label,
+              required && h('span', { className: 'ml-1 text-red-500' }, '*')
+            ),
+            description && h('p', { className: 'text-sm text-slate-500 mb-2' }, description),
+            children,
+            errors && errors.length > 0 && h('p', { className: 'mt-1 text-sm text-red-600' }, errors),
+            help && h('p', { className: 'mt-1 text-sm text-slate-500' }, help)
+          );
+        };
+        
+        // Create theme configuration
+        const shadcnTheme = {
+          widgets: {
+            TextWidget,
+            PasswordWidget,
+            EmailWidget,
+            NumberWidget,
+            TextareaWidget,
+            SelectWidget,
+            CheckboxWidget,
+            DateWidget,
+            DateTimeWidget,
+          },
+          templates: {
+            FieldTemplate,
+          }
+        };
+        
+        // Card components
+        const Card = ({ children, className }) => 
+            h('div', { 
+                className: cn('rounded-lg border border-slate-200 bg-white text-slate-950 shadow-sm', className) 
+            }, children);
+            
+        const CardHeader = ({ children }) => 
+            h('div', { className: 'flex flex-col space-y-1.5 p-6' }, children);
+            
+        const CardTitle = ({ children }) => 
+            h('h3', { className: 'text-2xl font-semibold leading-none tracking-tight' }, children);
+            
+        const CardDescription = ({ children }) => 
+            h('p', { className: 'text-sm text-slate-500' }, children);
+            
+        const CardContent = ({ children, className }) => 
+            h('div', { className: cn('p-6 pt-0', className) }, children);
         
         function FormApp() {
             const [formConfig, setFormConfig] = useState(null);
             const [formData, setFormData] = useState({});
-            const [errors, setErrors] = useState({});
             const [loading, setLoading] = useState(true);
             const [submitting, setSubmitting] = useState(false);
             const [submitted, setSubmitted] = useState(false);
@@ -241,19 +271,6 @@ export class FormRenderer {
                     })
                     .then(config => {
                         setFormConfig(config);
-                        // Initialize form data with defaults
-                        const initialData = {};
-                        Object.keys(config.schema.properties).forEach(key => {
-                            const field = config.schema.properties[key];
-                            if (field.type === 'boolean') {
-                                initialData[key] = false;
-                            } else if (field.type === 'array') {
-                                initialData[key] = [];
-                            } else {
-                                initialData[key] = '';
-                            }
-                        });
-                        setFormData(initialData);
                         setLoading(false);
                     })
                     .catch(err => {
@@ -262,60 +279,8 @@ export class FormRenderer {
                     });
             }, [formId]);
             
-            const validateField = (name, value) => {
-                const field = formConfig.schema.properties[name];
-                const required = formConfig.schema.required.includes(name);
-                
-                if (required && !value) {
-                    return 'This field is required';
-                }
-                
-                if (field.pattern && value) {
-                    const regex = new RegExp(field.pattern);
-                    if (!regex.test(value)) {
-                        return field.patternMessage || 'Invalid format';
-                    }
-                }
-                
-                if (field.format === 'email' && value) {
-                    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
-                    if (!emailRegex.test(value)) {
-                        return 'Invalid email address';
-                    }
-                }
-                
-                if (field.minimum !== undefined && value < field.minimum) {
-                    return \`Value must be at least \${field.minimum}\`;
-                }
-                
-                if (field.maximum !== undefined && value > field.maximum) {
-                    return \`Value must be at most \${field.maximum}\`;
-                }
-                
-                return null;
-            };
-            
-            const handleChange = (name, value) => {
-                setFormData(prev => ({ ...prev, [name]: value }));
-                const error = validateField(name, value);
-                setErrors(prev => ({ ...prev, [name]: error }));
-            };
-            
-            const handleSubmit = async (e) => {
+            const handleSubmit = async ({ formData }, e) => {
                 e.preventDefault();
-                
-                // Validate all fields
-                const newErrors = {};
-                Object.keys(formConfig.schema.properties).forEach(key => {
-                    const error = validateField(key, formData[key]);
-                    if (error) newErrors[key] = error;
-                });
-                
-                if (Object.keys(newErrors).length > 0) {
-                    setErrors(newErrors);
-                    return;
-                }
-                
                 setSubmitting(true);
                 
                 try {
@@ -334,121 +299,90 @@ export class FormRenderer {
                 }
             };
             
-            const renderField = (name, field) => {
-                const value = formData[name] || '';
-                const error = errors[name];
-                const uiSchema = formConfig.ui_schema[name] || {};
-                
-                let input;
-                
-                if (field.type === 'boolean') {
-                    input = h('div', { className: 'checkbox-group' },
-                        h('input', {
-                            type: 'checkbox',
-                            id: name,
-                            checked: value,
-                            onChange: (e) => handleChange(name, e.target.checked)
-                        }),
-                        h('label', { htmlFor: name }, field.title)
-                    );
-                } else if (field.enum) {
-                    input = h('select', {
-                        id: name,
-                        value: value,
-                        onChange: (e) => handleChange(name, e.target.value)
-                    },
-                        h('option', { value: '' }, 'Select...'),
-                        field.enum.map(opt => h('option', { key: opt, value: opt }, opt))
-                    );
-                } else if (field.type === 'array' && field.items?.enum) {
-                    input = h('div', null,
-                        field.items.enum.map(opt => h('div', { key: opt, className: 'checkbox-group' },
-                            h('input', {
-                                type: 'checkbox',
-                                id: \`\${name}-\${opt}\`,
-                                checked: value.includes(opt),
-                                onChange: (e) => {
-                                    const newValue = e.target.checked
-                                        ? [...value, opt]
-                                        : value.filter(v => v !== opt);
-                                    handleChange(name, newValue);
-                                }
-                            }),
-                            h('label', { htmlFor: \`\${name}-\${opt}\` }, opt)
-                        ))
-                    );
-                } else if (uiSchema['ui:widget'] === 'textarea') {
-                    input = h('textarea', {
-                        id: name,
-                        value: value,
-                        onChange: (e) => handleChange(name, e.target.value),
-                        placeholder: uiSchema['ui:placeholder'],
-                        rows: uiSchema['ui:options']?.rows || 4
-                    });
-                } else {
-                    const inputType = field.format === 'date' ? 'date' 
-                        : field.format === 'date-time' ? 'datetime-local'
-                        : field.type === 'number' ? 'number'
-                        : uiSchema['ui:widget'] || 'text';
-                        
-                    input = h('input', {
-                        type: inputType,
-                        id: name,
-                        value: value,
-                        onChange: (e) => handleChange(name, e.target.value),
-                        placeholder: uiSchema['ui:placeholder']
-                    });
-                }
-                
-                return h('div', { key: name, className: 'field-group' },
-                    field.type !== 'boolean' && h('label', { htmlFor: name }, 
-                        field.title,
-                        formConfig.schema.required.includes(name) && h('span', { style: { color: 'red' } }, ' *')
-                    ),
-                    input,
-                    field.description && h('div', { className: 'help-text' }, field.description),
-                    error && h('div', { className: 'error-text' }, error)
-                );
-            };
-            
             if (loading) {
-                return h('div', { className: 'form-container' },
-                    h('div', { className: 'loading' }, 'Loading form...')
-                );
-            }
-            
-            if (error) {
-                return h('div', { className: 'form-container' },
-                    h('div', { className: 'error' }, error)
-                );
-            }
-            
-            if (submitted) {
-                return h('div', { className: 'form-container' },
-                    h('div', { className: 'success-message' },
-                        h('h2', null, '✅ Success!'),
-                        h('p', null, formConfig.success_message)
+                return h('div', { className: 'min-h-screen bg-gray-50 flex items-center justify-center p-4' },
+                    h(Card, { className: 'w-full max-w-2xl' },
+                        h(CardContent, { className: 'p-8' },
+                            h('div', { className: 'flex items-center justify-center' },
+                                h('div', { className: 'animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900' }),
+                                h('span', { className: 'ml-3 text-gray-600' }, 'Loading form...')
+                            )
+                        )
                     )
                 );
             }
             
-            return h('div', { className: 'form-container' },
-                h('div', { className: 'form-header' },
-                    h('h1', null, formConfig.form_title),
-                    h('p', null, 'Please fill out the information below')
-                ),
-                h('div', { className: 'form-content' },
-                    h('form', { onSubmit: handleSubmit },
-                        Object.keys(formConfig.schema.properties).map(key => 
-                            renderField(key, formConfig.schema.properties[key])
+            if (error) {
+                return h('div', { className: 'min-h-screen bg-gray-50 flex items-center justify-center p-4' },
+                    h(Card, { className: 'w-full max-w-2xl' },
+                        h(CardContent, { className: 'p-8' },
+                            h('div', { className: 'bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded' }, error)
+                        )
+                    )
+                );
+            }
+            
+            if (submitted) {
+                return h('div', { className: 'min-h-screen bg-gray-50 flex items-center justify-center p-4' },
+                    h(Card, { className: 'w-full max-w-2xl' },
+                        h(CardContent, { className: 'p-8 text-center' },
+                            h('div', { className: 'mb-4' },
+                                h('div', { className: 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100' },
+                                    h('svg', { className: 'h-6 w-6 text-green-600', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' },
+                                        h('path', { strokeLinecap: 'round', strokeLinejoin: 'round', strokeWidth: '2', d: 'M5 13l4 4L19 7' })
+                                    )
+                                )
+                            ),
+                            h('h2', { className: 'text-2xl font-bold text-gray-900 mb-2' }, 'Success!'),
+                            h('p', { className: 'text-gray-600' }, formConfig?.success_message)
+                        )
+                    )
+                );
+            }
+            
+            if (!formConfig) return null;
+            
+            // Add submit button text to uiSchema
+            const enhancedUiSchema = {
+                ...formConfig.ui_schema,
+                'ui:submitButtonOptions': {
+                    submitText: formConfig.submit_button_text,
+                    props: {
+                        disabled: submitting,
+                        className: 'w-full'
+                    }
+                }
+            };
+            
+            return h('div', { className: 'min-h-screen bg-gray-50 py-8 px-4' },
+                h('div', { className: 'max-w-2xl mx-auto' },
+                    h(Card, null,
+                        h(CardHeader, null,
+                            h(CardTitle, null, formConfig.form_title),
+                            h(CardDescription, null, 'Please fill out the information below')
                         ),
-                        h('button', {
-                            type: 'submit',
-                            className: 'submit-button',
-                            disabled: submitting
-                        }, submitting ? 
-                            h('span', null, h('span', { className: 'spinner' }), ' Submitting...') 
-                            : formConfig.submit_button_text
+                        h(CardContent, null,
+                            h(Form, {
+                                schema: formConfig.schema,
+                                uiSchema: enhancedUiSchema,
+                                formData: formData,
+                                onChange: ({ formData }) => setFormData(formData),
+                                onSubmit: handleSubmit,
+                                validator: validator,
+                                ...shadcnTheme,
+                                children: h('button', {
+                                    type: 'submit',
+                                    disabled: submitting,
+                                    className: 'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-slate-900 text-slate-50 hover:bg-slate-900/90 h-10 px-4 py-2 w-full mt-4'
+                                },
+                                    submitting ? 
+                                        h('span', { className: 'flex items-center justify-center' },
+                                            h('span', { className: 'animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2' }),
+                                            'Submitting...'
+                                        ) 
+                                        : formConfig.submit_button_text
+                                )
+                            })
                         )
                     )
                 )

@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom FullCalendar styles for shadcn theme */
+.fc {
+  --fc-border-color: theme('colors.gray.200');
+  --fc-button-text-color: theme('colors.gray.700');
+  --fc-button-bg-color: theme('colors.white');
+  --fc-button-border-color: theme('colors.gray.200');
+  --fc-button-hover-bg-color: theme('colors.gray.50');
+  --fc-button-hover-border-color: theme('colors.gray.300');
+  --fc-button-active-bg-color: theme('colors.gray.100');
+  --fc-button-active-border-color: theme('colors.gray.300');
+  --fc-today-bg-color: theme('colors.blue.50');
+  --fc-event-bg-color: theme('colors.blue.500');
+  --fc-event-border-color: theme('colors.blue.500');
+  --fc-event-text-color: theme('colors.white');
+}
+
+.fc-event {
+  @apply rounded-md px-2 py-0.5 text-sm font-medium transition-all duration-200;
+}
+
+.fc-event:hover {
+  @apply -translate-y-px shadow-md;
+}
+
+.fc-daygrid-day-number {
+  @apply p-2 font-medium;
+}
+
+.fc-col-header-cell-cushion {
+  @apply p-2 font-semibold uppercase text-xs text-gray-500;
+}
+
+.fc-daygrid-more-link {
+  @apply text-blue-500 font-semibold;
+}
+
+.fc-popover {
+  @apply rounded-lg shadow-lg border border-gray-200;
+}
+
+.fc-popover-header {
+  @apply bg-gray-50 p-3 font-semibold rounded-t-lg;
+}
+
+.fc-list-event-time {
+  @apply text-gray-500;
+}
+
+.fc-list-event-title {
+  @apply text-gray-900 font-medium;
+}
+
+.fc-list-day-cushion {
+  @apply bg-gray-100 font-semibold p-3;
+}
