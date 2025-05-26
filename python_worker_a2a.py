@@ -49,7 +49,7 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2
 
 # MCP Configuration
-MCP_ENDPOINT = os.getenv('MCP_ENDPOINT', 'http://localhost:3001/mcp/v1')
+MCP_ENDPOINT = os.getenv('MCP_ENDPOINT', 'https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/mcp')
 
 # A2A Configuration
 A2A_AGENT_ID = os.getenv('A2A_AGENT_ID', 'message-analysis-agent')
