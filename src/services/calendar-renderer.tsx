@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { CalendarView } from '../components/calendar-view';
-import '../styles/calendar.css';
 
 interface CalendarConfig {
   title: string;
