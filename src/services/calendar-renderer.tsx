@@ -1,23 +1,6 @@
-import React from 'react';
-import ReactDOM from 'react-dom';
-import { CalendarView } from '../components/calendar-view';
-
-interface CalendarConfig {
-  title: string;
-  events: Array<{
-    title: string;
-    start: Date | string;
-    end: Date | string;
-    allDay?: boolean;
-    description?: string;
-    location?: string;
-  }>;
-  calendarId: string;
-}
-
 export class CalendarRenderer {
   /**
-   * Generate the calendar page HTML that loads calendar config dynamically with React and shadcn/ui
+   * Generate the calendar page HTML that loads calendar config dynamically with shadcn/ui styling
    */
   static generateCalendarPage(): string {
     return `<!DOCTYPE html>
@@ -32,13 +15,17 @@ export class CalendarRenderer {
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <!-- FullCalendar -->
-    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css' rel='stylesheet' />
+    <script crossorigin src="https://unpkg.com/@fullcalendar/core@6.1.11/index.global.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@fullcalendar/react@6.1.11/index.global.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@fullcalendar/daygrid@6.1.11/index.global.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@fullcalendar/list@6.1.11/index.global.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@fullcalendar/interaction@6.1.11/index.global.min.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Date-fns -->
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/index.min.js"></script>
+    <script src="https://unpkg.com/date-fns@2.30.0/index.umd.min.js"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -126,22 +113,8 @@ export class CalendarRenderer {
 <body>
     <div id="root"></div>
     
-    <script type="module">
-        // Import FullCalendar as ES modules
-        import FullCalendar from 'https://cdn.skypack.dev/@fullcalendar/react@6.1.11';
-        import dayGridPlugin from 'https://cdn.skypack.dev/@fullcalendar/daygrid@6.1.11';
-        import listPlugin from 'https://cdn.skypack.dev/@fullcalendar/list@6.1.11';
-        import interactionPlugin from 'https://cdn.skypack.dev/@fullcalendar/interaction@6.1.11';
-        
-        window.FullCalendar = FullCalendar;
-        window.dayGridPlugin = dayGridPlugin;
-        window.listPlugin = listPlugin;
-        window.interactionPlugin = interactionPlugin;
-    </script>
-    
     <script>
         const { useState, useEffect, useRef, createElement: h } = React;
-        const { format } = dateFns;
         
         // Get calendar ID from URL
         const calendarId = window.location.pathname.split('/').pop();
@@ -330,12 +303,6 @@ export class CalendarRenderer {
             
             if (!config) return null;
             
-            // Wait for FullCalendar to load
-            if (!window.FullCalendar) {
-                setTimeout(() => setLoading(true), 100);
-                return null;
-            }
-            
             return h('div', { className: 'min-h-screen bg-gray-50 p-4' },
                 h('div', { className: 'max-w-7xl mx-auto' },
                     h(Card, { className: 'shadow-lg' },
@@ -385,9 +352,9 @@ export class CalendarRenderer {
                                 )
                             ),
                             h('div', { className: 'p-4' },
-                                h(window.FullCalendar.default, {
+                                h(FullCalendarReact.Calendar, {
                                     ref: calendarRef,
-                                    plugins: [window.dayGridPlugin, window.listPlugin, window.interactionPlugin],
+                                    plugins: [FullCalendarDayGrid.default, FullCalendarList.default, FullCalendarInteraction.default],
                                     initialView: view,
                                     headerToolbar: false,
                                     events: config.events.map(event => ({
@@ -424,7 +391,7 @@ export class CalendarRenderer {
                             h(CardHeader, null,
                                 h(CardTitle, null, selectedEvent.title),
                                 h(CardDescription, null,
-                                    format(new Date(selectedEvent.start), 'PPP')
+                                    dateFns.format(new Date(selectedEvent.start), 'PPP')
                                 )
                             ),
                             h(CardContent, null,
