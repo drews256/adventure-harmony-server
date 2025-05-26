@@ -19,6 +19,9 @@ type MessageRole = 'user' | 'assistant';
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Serve static files from dist/public
+app.use('/public', express.static('dist/public'));
+
 // Initialize Supabase client
 const SUPABASE_URL = "https://dhelbmzzhobadauctczs.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
