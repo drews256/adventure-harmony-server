@@ -56,6 +56,9 @@ The A2A Python worker:
 6. **Tool Choice Fix**: Only passes `tool_choice` parameter when tools are actually available
 7. **SMS Sending**: Now actually sends SMS messages using `supabase.functions.invoke('send-sms', ...)`
 8. **Error SMS**: Sends user-friendly error messages when processing fails
+9. **Conversation History**: Properly retrieves conversation history using `conversation_id` or parent chain fallback
+10. **Tool History**: Correctly formats tool_use and tool_result blocks in conversation history
+11. **Conversation Continuity**: Maintains conversation_id across messages, generates new ones when needed
 
 ## System Prompt Context
 

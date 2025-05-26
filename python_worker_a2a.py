@@ -592,34 +592,107 @@ class A2AWorker:
                     .eq("conversation_id", conversation_id) \
                     .order("created_at", desc=False) \
                     .execute()
+                
+                if not result.data:
+                    # No messages found with this conversation_id
+                    logger.info(f"No messages found for conversation_id: {conversation_id}")
+                    return []
+                
+                logger.info(f"Found {len(result.data)} messages for conversation_id: {conversation_id}")
+                    
             except Exception as e:
                 # If conversation_id doesn't exist, fall back to parent chain method
                 logger.info("conversation_id column not found, using parent chain method")
                 return await self.get_conversation_history_by_parent_chain(conversation_id)
             
-            messages = []
-            for msg in result.data:
-                # Build Claude-compatible message format
-                role = "user" if msg["direction"] == "incoming" else "assistant"
-                content = msg["content"]
-                
-                # Handle tool results stored in metadata
-                if msg.get("metadata", {}).get("tool_use_id"):
-                    content = [{
-                        "type": "tool_result",
-                        "tool_use_id": msg["metadata"]["tool_use_id"],
-                        "content": json.dumps(msg["metadata"].get("tool_result", {}))
-                    }]
-                
-                messages.append({
-                    "role": role,
-                    "content": content
-                })
+            # Build conversation history with proper tool handling
+            return self.build_conversation_history_with_tools(result.data)
             
-            return messages
         except Exception as e:
             logger.error(f"Error fetching conversation history: {e}")
             return []
+    
+    def build_conversation_history_with_tools(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Build conversation history with proper Claude format for tools"""
+        claude_messages = []
+        
+        # Process all messages in order
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            
+            # Skip empty content messages
+            if not msg.get("content") or (isinstance(msg["content"], str) and not msg["content"].strip()):
+                i += 1
+                continue
+            
+            role = "user" if msg["direction"] == "incoming" else "assistant"
+            
+            # Check if this message has tool calls
+            if msg.get("tool_calls") and isinstance(msg["tool_calls"], list) and len(msg["tool_calls"]) > 0:
+                # This is an assistant message with tool calls
+                tool_use_content = []
+                
+                # Add text content if present
+                text_content = msg["content"] if msg["content"] and msg["content"].strip() else "Using tools"
+                tool_use_content.append({"type": "text", "text": text_content})
+                
+                # Add tool use blocks
+                for tool_call in msg["tool_calls"]:
+                    if tool_call.get("id") and tool_call.get("name"):
+                        tool_use_content.append({
+                            "type": "tool_use",
+                            "id": tool_call["id"],
+                            "name": tool_call["name"],
+                            "input": tool_call.get("input", tool_call.get("arguments", {}))
+                        })
+                
+                # Add assistant message with tool uses
+                claude_messages.append({
+                    "role": "assistant",
+                    "content": tool_use_content
+                })
+                
+                # Look for tool results in subsequent messages
+                tool_result_blocks = []
+                j = i + 1
+                while j < len(messages):
+                    result_msg = messages[j]
+                    if result_msg.get("tool_result_for"):
+                        # This is a tool result message
+                        tool_result_blocks.append({
+                            "type": "tool_result",
+                            "tool_use_id": result_msg["tool_result_for"],
+                            "content": result_msg.get("content", json.dumps({"status": "success"}))
+                        })
+                        j += 1
+                    else:
+                        break
+                
+                # Add user message with tool results
+                if tool_result_blocks:
+                    claude_messages.append({
+                        "role": "user",
+                        "content": tool_result_blocks
+                    })
+                    i = j  # Skip past the tool result messages
+                else:
+                    i += 1
+                    
+            elif msg.get("tool_result_for"):
+                # Skip tool result messages that were already processed
+                i += 1
+                continue
+                
+            else:
+                # Regular text message
+                claude_messages.append({
+                    "role": role,
+                    "content": msg["content"]
+                })
+                i += 1
+        
+        return claude_messages
     
     async def get_conversation_history_by_parent_chain(self, message_id: str) -> List[Dict[str, Any]]:
         """Fetch conversation history by following parent chain (fallback for old schema)"""
@@ -642,26 +715,13 @@ class A2AWorker:
                 else:
                     break
             
-            # Convert to Claude format
-            claude_messages = []
-            for msg in messages[:-1]:  # Exclude current message
-                role = "user" if msg["direction"] == "incoming" else "assistant"
-                content = msg["content"]
-                
-                # Handle tool results
-                if msg.get("tool_result_for"):
-                    content = [{
-                        "type": "tool_result",
-                        "tool_use_id": msg["tool_result_for"],
-                        "content": json.dumps(msg.get("tool_results", {}))
-                    }]
-                
-                claude_messages.append({
-                    "role": role,
-                    "content": content
-                })
+            # Remove the current message (last one) from history
+            if messages:
+                messages = messages[:-1]
             
-            return claude_messages
+            # Build conversation history with proper tool handling
+            return self.build_conversation_history_with_tools(messages)
+            
         except Exception as e:
             logger.error(f"Error fetching conversation history by parent chain: {e}")
             return []
@@ -676,9 +736,24 @@ class A2AWorker:
                 .execute()
             
             # Get conversation history
-            # Use conversation_id if available, otherwise use message id
-            conversation_id = message.get("conversation_id", message["id"])
-            history = await self.get_conversation_history(conversation_id)
+            # Use conversation_id if available, otherwise use message id for parent chain lookup
+            conversation_id = message.get("conversation_id")
+            
+            if conversation_id:
+                logger.info(f"Fetching conversation history for conversation_id: {conversation_id}")
+                history = await self.get_conversation_history(conversation_id)
+            else:
+                logger.info(f"No conversation_id found, using parent chain from message_id: {message['id']}")
+                history = await self.get_conversation_history_by_parent_chain(message["id"])
+            
+            logger.info(f"Retrieved {len(history)} messages in conversation history")
+            
+            # Log the last few messages for debugging
+            if history:
+                logger.info("Last 3 messages in history:")
+                for msg in history[-3:]:
+                    content_preview = str(msg.get("content", ""))[:100]
+                    logger.info(f"  Role: {msg['role']}, Content: {content_preview}...")
             
             # Create A2A request
             # Handle both old schema (phone_number) and new schema (from_number/to_number)
@@ -727,9 +802,26 @@ class A2AWorker:
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             
-            # Add new columns if they exist in the database
-            if "conversation_id" in message:
+            # Always try to maintain conversation continuity
+            # Set conversation_id - use existing or generate new one
+            if message.get("conversation_id"):
                 response_data["conversation_id"] = message["conversation_id"]
+            elif "conversation_id" in message:  # Column exists but value is None
+                # Generate a new conversation_id for this thread
+                new_conversation_id = str(uuid.uuid4())
+                response_data["conversation_id"] = new_conversation_id
+                
+                # Update the original message with the conversation_id
+                try:
+                    supabase.table("conversation_messages") \
+                        .update({"conversation_id": new_conversation_id}) \
+                        .eq("id", message["id"]) \
+                        .execute()
+                    logger.info(f"Created new conversation_id: {new_conversation_id}")
+                except Exception as e:
+                    logger.warning(f"Could not update original message with conversation_id: {e}")
+            
+            # Add other new columns if they exist
             if "from_number" in message:
                 response_data["from_number"] = recipient_number  # Swap for response
                 response_data["to_number"] = sender_number
