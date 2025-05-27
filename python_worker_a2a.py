@@ -63,7 +63,7 @@ anthropic = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
 class MCPClient:
-    """MCP Client using standard HTTP Streamable transport"""
+    """MCP Client using direct HTTP requests (bypass streamable HTTP issues)"""
     
     def __init__(self, endpoint: str):
         self.endpoint = endpoint
@@ -73,84 +73,51 @@ class MCPClient:
         self._read_stream = None
         self._write_stream = None
         self._connection_context = None
+        self._request_id_counter = 0
     
     async def connect(self):
-        """Connect to MCP server using HTTP Streamable transport"""
+        """Connect to MCP server using direct HTTP requests"""
         try:
             logger.info(f"🔗 Attempting to connect to MCP server at {self.endpoint}")
             
-            # Create MCP session with HTTP Streamable transport
-            # We need to manage the context manager manually to keep connection alive
-            logger.info(f"🔌 Creating streamablehttp_client with endpoint: {self.endpoint}")
-            self._connection_context = streamablehttp_client(self.endpoint)
+            # Test connection with initialize request
+            init_request = {
+                "jsonrpc": "2.0",
+                "id": self._get_next_request_id(),
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "roots": {"listChanged": True},
+                        "sampling": {}
+                    },
+                    "clientInfo": {
+                        "name": "python-worker-a2a",
+                        "version": "1.0.0"
+                    }
+                }
+            }
             
-            # The context manager might return a session object or tuple
-            logger.info("🔌 Entering streamablehttp_client context manager...")
-            context_result = await self._connection_context.__aenter__()
-            logger.info(f"🔌 Context manager returned: {type(context_result)}")
+            logger.info("📤 Sending initialize request via HTTP")
+            init_result = await self._send_http_request(init_request)
             
-            # Check what type of result we got
-            if hasattr(context_result, 'read_stream') and hasattr(context_result, 'write_stream'):
-                # It's a session object with read_stream and write_stream attributes
-                self._read_stream = context_result.read_stream
-                self._write_stream = context_result.write_stream
-                logger.info("🔌 Got session object with read_stream and write_stream")
-            elif isinstance(context_result, tuple) and len(context_result) >= 2:
-                # It's a tuple of (read_stream, write_stream, ...) from streamablehttp_client
-                self._read_stream = context_result[0]
-                self._write_stream = context_result[1]
-                logger.info(f"🔌 Got tuple with {len(context_result)} elements")
-            else:
-                raise ValueError(f"Unexpected context result type: {type(context_result)}")
-            
-            logger.info("📡 Established HTTP Streamable connection")
-            logger.info(f"📡 Read stream type: {type(self._read_stream)}")
-            logger.info(f"📡 Write stream type: {type(self._write_stream)}")
-            
-            # Create client session
-            self.session = ClientSession(self._read_stream, self._write_stream)
-            logger.info("✅ Created MCP client session")
-            
-            # Initialize the connection with timeout
-            logger.info("📤 Sending initialize request")
-            try:
-                # Add timeout to prevent hanging
-                init_result = await asyncio.wait_for(
-                    self.session.initialize(),
-                    timeout=30.0  # 30 second timeout
-                )
-                logger.info(f"📥 Initialize response: {init_result}")
-                logger.info(f"📥 Initialize response type: {type(init_result)}")
+            if init_result and init_result.get('jsonrpc') == '2.0' and 'result' in init_result:
+                result = init_result['result']
+                self.connected = True
+                logger.info("✅ Successfully connected to MCP server")
                 
-                if init_result:
-                    self.connected = True
-                    logger.info("✅ Successfully connected to MCP server")
-                    
-                    # Log all attributes of the init_result for debugging
-                    if hasattr(init_result, '__dict__'):
-                        logger.info(f"🔍 Init result attributes: {init_result.__dict__}")
-                    
-                    logger.info(f"🔧 Server info: {init_result.serverInfo if hasattr(init_result, 'serverInfo') else 'N/A'}")
-                    logger.info(f"📋 Protocol version: {init_result.protocolVersion if hasattr(init_result, 'protocolVersion') else 'N/A'}")
-                    logger.info(f"🔧 Capabilities: {init_result.capabilities if hasattr(init_result, 'capabilities') else 'N/A'}")
-                    
-                    # Get available tools
-                    await self.refresh_tools()
-                else:
-                    logger.error("❌ Initialize returned empty result")
-                    self.connected = False
-            except asyncio.TimeoutError:
-                logger.error("⏱️ Initialize request timed out after 30 seconds")
-                logger.error("🔍 This usually means the server is not responding with the expected SSE format")
+                logger.info(f"🔧 Server info: {result.get('serverInfo', 'N/A')}")
+                logger.info(f"📋 Protocol version: {result.get('protocolVersion', 'N/A')}")
+                logger.info(f"🔧 Capabilities: {result.get('capabilities', 'N/A')}")
+                
+                # Get available tools
+                await self.refresh_tools()
+            elif init_result and 'error' in init_result:
+                logger.error(f"❌ Initialize failed with error: {init_result['error']}")
                 self.connected = False
-                raise
-            except Exception as e:
-                logger.error(f"💥 Error during initialize: {e}")
-                logger.error(f"🔍 Exception type: {type(e).__name__}")
-                import traceback
-                logger.error(f"🔍 Full traceback: {traceback.format_exc()}")
+            else:
+                logger.error(f"❌ Initialize returned unexpected response: {init_result}")
                 self.connected = False
-                raise
                 
         except Exception as e:
             logger.error(f"💥 Error connecting to MCP: {e}")
@@ -159,25 +126,83 @@ class MCPClient:
             logger.error(f"🔍 Full traceback: {traceback.format_exc()}")
             self.connected = False
     
+    def _get_next_request_id(self):
+        """Get next request ID"""
+        self._request_id_counter += 1
+        return f"req_{self._request_id_counter}_{int(time.time())}"
+    
+    async def _send_http_request(self, request_data):
+        """Send HTTP request to MCP server and parse SSE response"""
+        async with httpx.AsyncClient() as client:
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream'
+            }
+            
+            logger.info(f"📤 HTTP Request: {request_data}")
+            
+            response = await client.post(
+                self.endpoint,
+                json=request_data,
+                headers=headers,
+                timeout=30.0
+            )
+            
+            logger.info(f"📥 HTTP Response Status: {response.status_code}")
+            logger.info(f"📥 HTTP Response Headers: {dict(response.headers)}")
+            
+            if response.status_code != 200:
+                raise Exception(f"HTTP error: {response.status_code} - {response.text}")
+            
+            # Parse SSE response
+            response_text = response.text
+            logger.info(f"📥 HTTP Response Body: {response_text}")
+            
+            # Parse SSE format: "event: message\ndata: {...}\n"
+            if response_text.startswith('event: message\ndata: '):
+                data_line = response_text.split('\ndata: ', 1)[1].strip()
+                try:
+                    return json.loads(data_line)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON data: {data_line}")
+                    raise e
+            else:
+                # Try parsing as direct JSON
+                try:
+                    return json.loads(response_text)
+                except json.JSONDecodeError:
+                    logger.error(f"Unexpected response format: {response_text}")
+                    raise Exception(f"Unexpected response format: {response_text}")
+    
     async def refresh_tools(self):
         """Get available tools from MCP server"""
         try:
-            if not self.session:
-                logger.error("❌ No active session - cannot fetch tools")
+            if not self.connected:
+                logger.error("❌ Not connected - cannot fetch tools")
                 return
                 
             logger.info("🔧 Fetching tools from MCP server")
             
-            # List tools using MCP protocol
-            tools_result = await self.session.list_tools()
+            # Send tools/list request
+            tools_request = {
+                "jsonrpc": "2.0",
+                "id": self._get_next_request_id(),
+                "method": "tools/list",
+                "params": {}
+            }
             
-            if tools_result and hasattr(tools_result, 'tools'):
+            tools_result = await self._send_http_request(tools_request)
+            
+            if tools_result and tools_result.get('jsonrpc') == '2.0' and 'result' in tools_result:
+                result = tools_result['result']
+                tools_list = result.get('tools', [])
+                
                 self.tools = []
-                for tool in tools_result.tools:
+                for tool in tools_list:
                     tool_dict = {
-                        "name": tool.name,
-                        "description": tool.description if hasattr(tool, 'description') else "",
-                        "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {"type": "object"}
+                        "name": tool.get("name", ""),
+                        "description": tool.get("description", ""),
+                        "inputSchema": tool.get("inputSchema", {"type": "object"})
                     }
                     self.tools.append(tool_dict)
                     
@@ -190,8 +215,10 @@ class MCPClient:
                 
                 if len(self.tools) == 0:
                     logger.warning("⚠️  No tools returned from MCP server")
+            elif tools_result and 'error' in tools_result:
+                logger.error(f"❌ Tools list failed with error: {tools_result['error']}")
             else:
-                logger.error("❌ Failed to get tools - empty result")
+                logger.error(f"❌ Tools list returned unexpected response: {tools_result}")
                 
         except Exception as e:
             logger.error(f"💥 Error getting tools from MCP: {e}")
@@ -202,30 +229,50 @@ class MCPClient:
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Call a tool through MCP"""
         try:
-            if not self.session:
-                logger.error("❌ No active session - cannot call tool")
-                return {"error": "No active MCP session"}
+            if not self.connected:
+                logger.error("❌ Not connected - cannot call tool")
+                return {"error": "No active MCP connection"}
                 
             logger.info(f"🔧 Calling tool: {tool_name} with args: {arguments}")
             
-            # Call tool using MCP protocol
-            result = await self.session.call_tool(tool_name, arguments)
+            # Send tools/call request
+            tool_request = {
+                "jsonrpc": "2.0",
+                "id": self._get_next_request_id(),
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments
+                }
+            }
             
-            logger.info(f"📥 Tool result: {result}")
+            tool_result = await self._send_http_request(tool_request)
             
-            # Convert result to dict format
-            if hasattr(result, 'content'):
-                if isinstance(result.content, list) and len(result.content) > 0:
-                    # Return the first content item
-                    content = result.content[0]
-                    if hasattr(content, 'text'):
-                        return {"result": content.text}
+            logger.info(f"📥 Tool result: {tool_result}")
+            
+            if tool_result and tool_result.get('jsonrpc') == '2.0' and 'result' in tool_result:
+                result = tool_result['result']
+                
+                # Handle different result formats
+                if isinstance(result, dict) and 'content' in result:
+                    content = result['content']
+                    if isinstance(content, list) and len(content) > 0:
+                        # Return the first content item
+                        first_content = content[0]
+                        if isinstance(first_content, dict) and 'text' in first_content:
+                            return {"result": first_content['text']}
+                        else:
+                            return {"result": str(first_content)}
                     else:
                         return {"result": str(content)}
                 else:
-                    return {"result": str(result.content)}
+                    return {"result": result}
+            elif tool_result and 'error' in tool_result:
+                logger.error(f"❌ Tool call failed with error: {tool_result['error']}")
+                return {"error": str(tool_result['error'])}
             else:
-                return {"result": str(result)}
+                logger.error(f"❌ Tool call returned unexpected response: {tool_result}")
+                return {"error": "Unexpected response format"}
                 
         except Exception as e:
             logger.error(f"💥 Error calling MCP tool {tool_name}: {e}")
@@ -236,20 +283,13 @@ class MCPClient:
     
     async def close(self):
         """Close MCP connection"""
-        if self.session:
-            self.session = None
-        
-        # Properly exit the context manager
-        if self._connection_context:
-            try:
-                await self._connection_context.__aexit__(None, None, None)
-            except Exception as e:
-                logger.error(f"Error closing connection context: {e}")
-            self._connection_context = None
-        
+        # No persistent connections to close for HTTP client
+        self.connected = False
+        self.session = None
         self._read_stream = None
         self._write_stream = None
-        self.connected = False
+        self._connection_context = None
+        logger.info("🔌 MCP connection closed")
 
 
 class A2AMessageType(Enum):
