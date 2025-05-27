@@ -596,7 +596,12 @@ class A2AMessageProcessor:
         
         if MCP_AVAILABLE and self.mcp_client:
             logger.info("🔧 Initializing MCP client connection...")
-            await self.mcp_client.connect()
+            try:
+                await self.mcp_client.connect()
+            except Exception as e:
+                logger.error(f"⚠️  MCP connection failed: {e}")
+                logger.error("⚠️  Continuing without MCP tools - local tools still available")
+                self.mcp_client.connected = False
             
             if self.mcp_client.connected:
                 logger.info(f"✅ MCP connected! Found {len(self.mcp_client.tools)} tools")
