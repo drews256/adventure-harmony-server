@@ -811,42 +811,64 @@ class A2AMessageProcessor:
 
     Here's my current message: {content}"""
             
-            # Call Claude with enhanced prompt
-            # Build the request parameters
-            request_params = {
-                "model": "claude-3-5-sonnet-20241022",
-                "max_tokens": 1000,
-                "temperature": 0.7,
-                "messages": conversation_history + [{"role": "user", "content": enhanced_prompt}]
-            }
+            # Initialize tool iteration counter
+            tool_iterations = 0
+            MAX_TOOL_ITERATIONS = 5
             
-            # Only add tools and tool_choice if we have tools
-            if claude_tools:
-                request_params["tools"] = claude_tools
-                request_params["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": False}
+            # Build initial messages
+            messages = conversation_history + [{"role": "user", "content": enhanced_prompt}]
             
-            response = anthropic.messages.create(**request_params)
-            
-            # Process Claude's response
+            # Result container
             result = {
                 "text": "",
                 "tool_calls": []
             }
             
-            # Check if Claude made any tool calls
-            has_tool_calls = any(content_block.type == "tool_use" for content_block in response.content)
-            
-            if has_tool_calls:
+            # Main processing loop with iteration limit
+            while tool_iterations < MAX_TOOL_ITERATIONS:
+                # Build the request parameters
+                request_params = {
+                    "model": "claude-3-5-sonnet-20241022",
+                    "max_tokens": 1000,
+                    "temperature": 0.7,
+                    "messages": messages
+                }
+                
+                # Only add tools and tool_choice if we have tools
+                if claude_tools:
+                    request_params["tools"] = claude_tools
+                    request_params["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": False}
+                
+                # Call Claude
+                response = anthropic.messages.create(**request_params)
+                
+                # Check if Claude made any tool calls
+                has_tool_calls = any(content_block.type == "tool_use" for content_block in response.content)
+                
+                if not has_tool_calls:
+                    # No tool calls, extract text and break
+                    for content_block in response.content:
+                        if content_block.type == "text":
+                            result["text"] += content_block.text
+                    break
+                
+                # Process tool calls
+                tool_iterations += 1
+                logger.info(f"🔄 Tool iteration {tool_iterations}/{MAX_TOOL_ITERATIONS}")
+                
                 # Execute tools and collect results
                 tool_results = []
                 
                 for content_block in response.content:
                     if content_block.type == "text":
-                        result["text"] += content_block.text
+                        # Collect any text before tool calls
+                        pass  # We'll get the final text from the last response
                     elif content_block.type == "tool_use":
                         # Execute tool and get result
                         tool_name = content_block.name
                         tool_use_id = content_block.id
+                        
+                        logger.info(f"🔧 Executing tool: {tool_name}")
                         
                         if tool_name in self.local_tools:
                             tool_result = await self.local_tools[tool_name].execute(
@@ -879,36 +901,35 @@ class A2AMessageProcessor:
                                 "content": json.dumps(mcp_result)
                             })
                 
-                # Make follow-up call to Claude with tool results
-                follow_up_messages = conversation_history + [
-                    {"role": "user", "content": enhanced_prompt},
-                    {"role": "assistant", "content": response.content},
-                    {"role": "user", "content": tool_results}
-                ]
+                # Add assistant response and tool results to messages
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": tool_results})
                 
-                follow_up_params = {
-                    "model": "claude-3-5-sonnet-20241022",
-                    "max_tokens": 1000,
-                    "temperature": 0.7,
-                    "messages": follow_up_messages
-                }
-                
-                # Second call to Claude with tool results
-                follow_up_response = anthropic.messages.create(**follow_up_params)
-                
-                # Extract final text from follow-up response
-                final_text = ""
-                for content_block in follow_up_response.content:
-                    if content_block.type == "text":
-                        final_text += content_block.text
-                
-                result["text"] = final_text
-                
-            else:
-                # No tool calls, just process text
+                # Check if we've hit the iteration limit
+                if tool_iterations >= MAX_TOOL_ITERATIONS:
+                    logger.warning(f"⚠️ Reached maximum tool iterations ({MAX_TOOL_ITERATIONS}). Stopping tool execution.")
+                    # Add a final message to get Claude's response without tools
+                    final_params = {
+                        "model": "claude-3-5-sonnet-20241022",
+                        "max_tokens": 1000,
+                        "temperature": 0.7,
+                        "messages": messages + [{"role": "user", "content": "Please provide a final response based on the tool results you've gathered. No more tools are available."}]
+                    }
+                    final_response = anthropic.messages.create(**final_params)
+                    
+                    # Extract final text
+                    for content_block in final_response.content:
+                        if content_block.type == "text":
+                            result["text"] += content_block.text
+                    break
+            
+            # If we exited the loop normally (no more tool calls), get the final text from the last response
+            if tool_iterations < MAX_TOOL_ITERATIONS:
                 for content_block in response.content:
                     if content_block.type == "text":
                         result["text"] += content_block.text
+            
+            logger.info(f"✅ Completed processing with {tool_iterations} tool iteration(s)")
             
             return A2AMessage(
                 jsonrpc="2.0",
