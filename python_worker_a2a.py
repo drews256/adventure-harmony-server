@@ -72,6 +72,7 @@ class MCPClient:
         self.connected = False
         self._read_stream = None
         self._write_stream = None
+        self._connection_context = None
     
     async def connect(self):
         """Connect to MCP server using HTTP Streamable transport"""
@@ -79,7 +80,9 @@ class MCPClient:
             logger.info(f"🔗 Attempting to connect to MCP server at {self.endpoint}")
             
             # Create MCP session with HTTP Streamable transport
-            self._read_stream, self._write_stream = await streamablehttp_client(self.endpoint)
+            # We need to manage the context manager manually to keep connection alive
+            self._connection_context = streamablehttp_client(self.endpoint)
+            self._read_stream, self._write_stream = await self._connection_context.__aenter__()
             logger.info("📡 Established HTTP Streamable connection")
             
             # Create client session
@@ -189,12 +192,19 @@ class MCPClient:
     async def close(self):
         """Close MCP connection"""
         if self.session:
-            # Session cleanup is handled by the context manager
             self.session = None
-        if self._write_stream:
-            await self._write_stream.aclose()
-        if self._read_stream:
-            await self._read_stream.aclose()
+        
+        # Properly exit the context manager
+        if self._connection_context:
+            try:
+                await self._connection_context.__aexit__(None, None, None)
+            except Exception as e:
+                logger.error(f"Error closing connection context: {e}")
+            self._connection_context = None
+        
+        self._read_stream = None
+        self._write_stream = None
+        self.connected = False
 
 
 class A2AMessageType(Enum):
