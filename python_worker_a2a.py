@@ -81,45 +81,79 @@ class MCPClient:
     async def connect(self):
         """Connect to MCP server and initialize"""
         try:
-            logger.info(f"Connecting to MCP server at {self.endpoint}")
+            logger.info(f"🔗 Attempting to connect to MCP server at {self.endpoint}")
+            logger.info(f"📋 Session ID: {self.session_id}")
             
             # Initialize connection
+            init_payload = {
+                "protocolVersion": "2025-03-26",
+                "clientInfo": {
+                    "name": "Python A2A Worker",
+                    "version": "1.0.0"
+                },
+                "sessionId": self.session_id
+            }
+            logger.info(f"📤 Sending initialize request: {init_payload}")
+            
             init_response = await self.http_client.post(
                 f"{self.endpoint}/initialize",
-                json={
-                    "protocolVersion": "2025-03-26",
-                    "clientInfo": {
-                        "name": "Python A2A Worker",
-                        "version": "1.0.0"
-                    },
-                    "sessionId": self.session_id
-                }
+                json=init_payload
             )
             
+            logger.info(f"📥 Initialize response: {init_response.status_code}")
             if init_response.status_code == 200:
+                response_data = init_response.json()
+                logger.info(f"📥 Initialize response data: {response_data}")
+                
                 self.connected = True
-                logger.info("Successfully connected to MCP server")
+                logger.info("✅ Successfully connected to MCP server")
                 
                 # Get available tools
                 await self.refresh_tools()
             else:
-                logger.error(f"Failed to connect to MCP: {init_response.status_code} - {init_response.text}")
+                logger.error(f"❌ Failed to connect to MCP: {init_response.status_code}")
+                logger.error(f"📥 Response body: {init_response.text}")
                 
         except Exception as e:
-            logger.error(f"Error connecting to MCP: {e}")
+            logger.error(f"💥 Error connecting to MCP: {e}")
+            logger.error(f"🔍 Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"🔍 Full traceback: {traceback.format_exc()}")
             self.connected = False
     
     async def refresh_tools(self):
         """Get available tools from MCP server"""
         try:
+            logger.info(f"🔧 Fetching tools from {self.endpoint}/tools")
             tools_response = await self.http_client.get(f"{self.endpoint}/tools")
+            logger.info(f"📥 Tools response: {tools_response.status_code}")
+            
             if tools_response.status_code == 200:
                 tools_data = tools_response.json()
+                logger.info(f"📥 Tools response data: {tools_data}")
+                
                 self.tools = tools_data.get("tools", [])
-                logger.info(f"Retrieved {len(self.tools)} tools from MCP server")
+                logger.info(f"✅ Retrieved {len(self.tools)} tools from MCP server")
+                
+                # Log each tool in detail
+                for i, tool in enumerate(self.tools):
+                    tool_name = tool.get("name", "unknown")
+                    tool_desc = tool.get("description", "no description")
+                    logger.info(f"  🔧 Tool {i+1}: {tool_name} - {tool_desc}")
+                    logger.info(f"     📋 Schema: {tool.get('input_schema', {})}")
+                
+                if len(self.tools) == 0:
+                    logger.warning("⚠️  No tools returned from MCP server")
+                    
+            else:
+                logger.error(f"❌ Failed to get tools: {tools_response.status_code}")
+                logger.error(f"📥 Response body: {tools_response.text}")
                 
         except Exception as e:
-            logger.error(f"Error getting tools from MCP: {e}")
+            logger.error(f"💥 Error getting tools from MCP: {e}")
+            logger.error(f"🔍 Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"🔍 Full traceback: {traceback.format_exc()}")
     
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Call a tool through MCP"""
@@ -516,20 +550,44 @@ class A2AMessageProcessor:
     
     async def initialize(self):
         """Initialize MCP connection and get tools"""
-        if self.mcp_client:
+        logger.info("🚀 Initializing A2A Message Processor")
+        logger.info(f"🌐 MCP_AVAILABLE: {MCP_AVAILABLE}")
+        logger.info(f"🔗 MCP_ENDPOINT: {MCP_ENDPOINT}")
+        
+        if MCP_AVAILABLE and self.mcp_client:
+            logger.info("🔧 Initializing MCP client connection...")
             await self.mcp_client.connect()
+            
             if self.mcp_client.connected:
+                logger.info(f"✅ MCP connected! Found {len(self.mcp_client.tools)} tools")
+                
                 # Add ALL MCP tools to our available tools (no filtering)
-                for mcp_tool in self.mcp_client.tools:
+                for i, mcp_tool in enumerate(self.mcp_client.tools):
+                    tool_name = mcp_tool.get("name", f"tool_{i}")
+                    tool_desc = mcp_tool.get("description", "No description")
+                    
                     # Create A2A tool definition for MCP tool
                     a2a_tool = A2ATool(
-                        name=mcp_tool["name"],
-                        description=mcp_tool.get("description", ""),
+                        name=tool_name,
+                        description=tool_desc,
                         input_schema=mcp_tool.get("inputSchema", {"type": "object"})
                     )
-                    self.mcp_tools[mcp_tool["name"]] = a2a_tool
+                    self.mcp_tools[tool_name] = a2a_tool
                     self.agent_card.add_tool(a2a_tool)
-                    logger.info(f"Added MCP tool: {mcp_tool['name']}")
+                    logger.info(f"  ✅ Added MCP tool {i+1}: {tool_name} - {tool_desc}")
+                
+                logger.info(f"🎯 Total MCP tools registered: {len(self.mcp_tools)}")
+            else:
+                logger.warning("⚠️  MCP client failed to connect - no MCP tools available")
+        else:
+            if not MCP_AVAILABLE:
+                logger.warning("⚠️  MCP not available - MCP tools disabled")
+            else:
+                logger.warning("⚠️  MCP client not initialized - MCP tools disabled")
+        
+        # Log final tool summary
+        total_tools = len(self.local_tools) + len(self.mcp_tools)
+        logger.info(f"🔧 Tool Summary: {len(self.local_tools)} local + {len(self.mcp_tools)} MCP = {total_tools} total tools")
     
     async def handle_a2a_request(self, message: A2AMessage) -> A2AMessage:
         """Handle incoming A2A request"""
