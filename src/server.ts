@@ -11,6 +11,29 @@ import { createGoGuideClient } from './services/goguide-api';
 import { withRetry } from './utils/retry';
 import { CalendarTool } from './services/calendar-tool';
 
+// Fun processing messages
+function getProcessingMessage(): string {
+  const messages = [
+    "🎯 On it! I'll be right back with your answer.",
+    "🚀 Message received! Give me a moment to work my magic.",
+    "🎪 Your request just joined the queue! I'll have something for you soon.",
+    "🌟 Got it! Let me dig into that for you.",
+    "🎨 Processing your request... this won't take long!",
+    "🔮 Looking into that now. Hang tight!",
+    "🎭 Your message is in good hands. Back in a jiffy!",
+    "🎪 Request received! Working on something great for you.",
+    "✨ I'm on the case! Results coming your way shortly.",
+    "🎯 Message received loud and clear! Processing now.",
+    "🌊 Diving into your request. Surface with answers soon!",
+    "🎪 Your adventure is being planned! Details coming up.",
+    "🔍 Investigating your request. Stay tuned!",
+    "🎨 Crafting the perfect response for you...",
+    "🚁 Request airborne! Landing with answers shortly."
+  ];
+  
+  return messages[Math.floor(Math.random() * messages.length)];
+}
+
 dotenv.config();
 
 // Define the type for message roles
@@ -125,7 +148,7 @@ app.post('/analyze-message', async (req, res) => {
     await supabase.functions.invoke('send-sms', {
       body: {
         to: phoneNumber,
-        message: "I'm processing your request. I'll get back to you shortly."
+        message: getProcessingMessage()
       }
     });
 
