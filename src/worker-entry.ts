@@ -48,7 +48,7 @@ class MCP_ConnectionManager {
   private connectPromise: Promise<any> | null = null;
   private connectionAttempts = 0;
   private readonly MAX_ATTEMPTS = 3;
-  private readonly MCP_ENDPOINT = "https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/mcp";
+  private readonly MCP_ENDPOINT = process.env.MCP_SERVER_URL || "http://localhost:3000/mcp";
   
   /**
    * Create a new MCP connection following the protocol specification

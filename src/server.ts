@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { createPatchedStreamableHTTPTransport } from './utils/patched-streamable-http.js';
 
 // Import new service modules
 import { createGoGuideClient } from './services/goguide-api';
@@ -44,20 +44,20 @@ async function ensureMcpConnection() {
       
       mcpClient = new Client({ name: clientId, version: "1.0.0" });
       
-      // Use StreamableHTTP transport instead of SSE for more reliability
-      // Log the transport creation
-      console.log("Creating MCP client transport");
+      // Use StreamableHTTP transport for better reliability and MCP compliance
+      console.log("Creating MCP client transport with StreamableHTTP");
       
       // Important: Use /mcp endpoint for proper StreamableHTTP transport
-      const transportUrl = new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/mcp");
+      // Use localhost for testing the openapi-mcp-server integration
+      const transportUrl = new URL(process.env.MCP_SERVER_URL || "http://localhost:3000/mcp");
       console.log(`Using transport URL: ${transportUrl.toString()}`);
       
-      const transport = new SSEClientTransport(transportUrl);
+      const transport = createPatchedStreamableHTTPTransport(transportUrl);
       
       // Log transport details
       console.log(`Transport created: ${transport.constructor.name}`);
       
-      console.log('Starting new MCP connection with SSE transport');
+      console.log('Starting new MCP connection with StreamableHTTP transport');
       
       await mcpClient.connect(transport);
       console.log('MCP client connected successfully');
