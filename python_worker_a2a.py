@@ -833,31 +833,82 @@ class A2AMessageProcessor:
                 "tool_calls": []
             }
             
-            for content_block in response.content:
-                if content_block.type == "text":
-                    result["text"] += content_block.text
-                elif content_block.type == "tool_use":
-                    # Execute tool and get result
-                    tool_name = content_block.name
-                    
-                    if tool_name in self.local_tools:
-                        tool_result = await self.local_tools[tool_name].execute(
-                            content_block.input,
-                            {"message_id": params.get("message_id")}
-                        )
-                        result["tool_calls"].append({
-                            "tool": tool_name,
-                            "input": content_block.input,
-                            "result": tool_result.result if tool_result.result else tool_result.error
-                        })
-                    elif tool_name in self.mcp_tools and self.mcp_client:
-                        # Execute MCP tool
-                        mcp_result = await self.mcp_client.call_tool(tool_name, content_block.input)
-                        result["tool_calls"].append({
-                            "tool": tool_name,
-                            "input": content_block.input,
-                            "result": mcp_result
-                        })
+            # Check if Claude made any tool calls
+            has_tool_calls = any(content_block.type == "tool_use" for content_block in response.content)
+            
+            if has_tool_calls:
+                # Execute tools and collect results
+                tool_results = []
+                
+                for content_block in response.content:
+                    if content_block.type == "text":
+                        result["text"] += content_block.text
+                    elif content_block.type == "tool_use":
+                        # Execute tool and get result
+                        tool_name = content_block.name
+                        tool_use_id = content_block.id
+                        
+                        if tool_name in self.local_tools:
+                            tool_result = await self.local_tools[tool_name].execute(
+                                content_block.input,
+                                {"message_id": params.get("message_id")}
+                            )
+                            result["tool_calls"].append({
+                                "tool": tool_name,
+                                "input": content_block.input,
+                                "result": tool_result.result if tool_result.result else tool_result.error
+                            })
+                            # Prepare tool result for Claude
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": tool_use_id,
+                                "content": json.dumps(tool_result.result if tool_result.result else tool_result.error)
+                            })
+                        elif tool_name in self.mcp_tools and self.mcp_client:
+                            # Execute MCP tool
+                            mcp_result = await self.mcp_client.call_tool(tool_name, content_block.input)
+                            result["tool_calls"].append({
+                                "tool": tool_name,
+                                "input": content_block.input,
+                                "result": mcp_result
+                            })
+                            # Prepare tool result for Claude
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": tool_use_id,
+                                "content": json.dumps(mcp_result)
+                            })
+                
+                # Make follow-up call to Claude with tool results
+                follow_up_messages = conversation_history + [
+                    {"role": "user", "content": enhanced_prompt},
+                    {"role": "assistant", "content": response.content},
+                    {"role": "user", "content": tool_results}
+                ]
+                
+                follow_up_params = {
+                    "model": "claude-3-5-sonnet-20241022",
+                    "max_tokens": 1000,
+                    "temperature": 0.7,
+                    "messages": follow_up_messages
+                }
+                
+                # Second call to Claude with tool results
+                follow_up_response = anthropic.messages.create(**follow_up_params)
+                
+                # Extract final text from follow-up response
+                final_text = ""
+                for content_block in follow_up_response.content:
+                    if content_block.type == "text":
+                        final_text += content_block.text
+                
+                result["text"] = final_text
+                
+            else:
+                # No tool calls, just process text
+                for content_block in response.content:
+                    if content_block.type == "text":
+                        result["text"] += content_block.text
             
             return A2AMessage(
                 jsonrpc="2.0",
