@@ -91,24 +91,12 @@ class MCPClient:
                 # It's a session object with read_stream and write_stream attributes
                 self._read_stream = context_result.read_stream
                 self._write_stream = context_result.write_stream
-            elif isinstance(context_result, tuple) and len(context_result) == 2:
-                # It's a tuple of (read_stream, write_stream)
-                self._read_stream, self._write_stream = context_result
+            elif isinstance(context_result, tuple) and len(context_result) >= 2:
+                # It's a tuple of (read_stream, write_stream, ...) from streamablehttp_client
+                self._read_stream = context_result[0]
+                self._write_stream = context_result[1]
             else:
-                # Try to use it directly as a session
-                logger.info(f"📡 Got context result of type: {type(context_result)}")
-                if hasattr(context_result, '__dict__'):
-                    logger.info(f"📡 Context result attributes: {context_result.__dict__.keys()}")
-                # For streamablehttp_client, the result is likely the session itself
-                self.session = context_result
-                self.connected = True
-                logger.info("✅ Successfully connected to MCP server via HTTP Streamable")
-                
-                # List available tools
-                available_tools = await self.session.list_tools()
-                self.tools = available_tools.tools if hasattr(available_tools, 'tools') else []
-                logger.info(f"📋 Available tools: {[tool.name for tool in self.tools]}")
-                return
+                raise ValueError(f"Unexpected context result type: {type(context_result)}")
             
             logger.info("📡 Established HTTP Streamable connection")
             
