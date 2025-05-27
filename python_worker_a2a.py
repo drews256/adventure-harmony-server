@@ -81,46 +81,76 @@ class MCPClient:
             
             # Create MCP session with HTTP Streamable transport
             # We need to manage the context manager manually to keep connection alive
+            logger.info(f"🔌 Creating streamablehttp_client with endpoint: {self.endpoint}")
             self._connection_context = streamablehttp_client(self.endpoint)
             
             # The context manager might return a session object or tuple
+            logger.info("🔌 Entering streamablehttp_client context manager...")
             context_result = await self._connection_context.__aenter__()
+            logger.info(f"🔌 Context manager returned: {type(context_result)}")
             
             # Check what type of result we got
             if hasattr(context_result, 'read_stream') and hasattr(context_result, 'write_stream'):
                 # It's a session object with read_stream and write_stream attributes
                 self._read_stream = context_result.read_stream
                 self._write_stream = context_result.write_stream
+                logger.info("🔌 Got session object with read_stream and write_stream")
             elif isinstance(context_result, tuple) and len(context_result) >= 2:
                 # It's a tuple of (read_stream, write_stream, ...) from streamablehttp_client
                 self._read_stream = context_result[0]
                 self._write_stream = context_result[1]
+                logger.info(f"🔌 Got tuple with {len(context_result)} elements")
             else:
                 raise ValueError(f"Unexpected context result type: {type(context_result)}")
             
             logger.info("📡 Established HTTP Streamable connection")
+            logger.info(f"📡 Read stream type: {type(self._read_stream)}")
+            logger.info(f"📡 Write stream type: {type(self._write_stream)}")
             
             # Create client session
             self.session = ClientSession(self._read_stream, self._write_stream)
             logger.info("✅ Created MCP client session")
             
-            # Initialize the connection
+            # Initialize the connection with timeout
             logger.info("📤 Sending initialize request")
-            init_result = await self.session.initialize()
-            logger.info(f"📥 Initialize response: {init_result}")
-            
-            if init_result:
-                self.connected = True
-                logger.info("✅ Successfully connected to MCP server")
-                logger.info(f"🔧 Server info: {init_result.serverInfo if hasattr(init_result, 'serverInfo') else 'N/A'}")
-                logger.info(f"📋 Protocol version: {init_result.protocolVersion if hasattr(init_result, 'protocolVersion') else 'N/A'}")
-                logger.info(f"🔧 Capabilities: {init_result.capabilities if hasattr(init_result, 'capabilities') else 'N/A'}")
+            try:
+                # Add timeout to prevent hanging
+                init_result = await asyncio.wait_for(
+                    self.session.initialize(),
+                    timeout=30.0  # 30 second timeout
+                )
+                logger.info(f"📥 Initialize response: {init_result}")
+                logger.info(f"📥 Initialize response type: {type(init_result)}")
                 
-                # Get available tools
-                await self.refresh_tools()
-            else:
-                logger.error("❌ Initialize returned empty result")
+                if init_result:
+                    self.connected = True
+                    logger.info("✅ Successfully connected to MCP server")
+                    
+                    # Log all attributes of the init_result for debugging
+                    if hasattr(init_result, '__dict__'):
+                        logger.info(f"🔍 Init result attributes: {init_result.__dict__}")
+                    
+                    logger.info(f"🔧 Server info: {init_result.serverInfo if hasattr(init_result, 'serverInfo') else 'N/A'}")
+                    logger.info(f"📋 Protocol version: {init_result.protocolVersion if hasattr(init_result, 'protocolVersion') else 'N/A'}")
+                    logger.info(f"🔧 Capabilities: {init_result.capabilities if hasattr(init_result, 'capabilities') else 'N/A'}")
+                    
+                    # Get available tools
+                    await self.refresh_tools()
+                else:
+                    logger.error("❌ Initialize returned empty result")
+                    self.connected = False
+            except asyncio.TimeoutError:
+                logger.error("⏱️ Initialize request timed out after 30 seconds")
+                logger.error("🔍 This usually means the server is not responding with the expected SSE format")
                 self.connected = False
+                raise
+            except Exception as e:
+                logger.error(f"💥 Error during initialize: {e}")
+                logger.error(f"🔍 Exception type: {type(e).__name__}")
+                import traceback
+                logger.error(f"🔍 Full traceback: {traceback.format_exc()}")
+                self.connected = False
+                raise
                 
         except Exception as e:
             logger.error(f"💥 Error connecting to MCP: {e}")
