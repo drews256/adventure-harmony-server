@@ -21,6 +21,15 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
+# Add morning update support
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'agents'))
+try:
+    from morning_update import MorningUpdateManager
+    MORNING_UPDATE_AVAILABLE = True
+except ImportError:
+    MORNING_UPDATE_AVAILABLE = False
+    logging.warning("Morning update module not available")
+
 # Try to import MCP
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -988,10 +997,20 @@ class A2AWorker:
     def __init__(self):
         self.processor = A2AMessageProcessor()
         self.running = True
+        self.morning_update_manager = None
+        self.last_morning_update_check = None
     
     async def initialize(self):
         """Initialize the worker and MCP connection"""
         await self.processor.initialize()
+        
+        # Initialize morning update manager if available
+        if MORNING_UPDATE_AVAILABLE and self.processor.mcp_client:
+            self.morning_update_manager = MorningUpdateManager(
+                supabase, 
+                self.processor.mcp_client
+            )
+            logger.info("Morning update manager initialized")
     
     async def get_pending_message(self) -> Optional[Dict[str, Any]]:
         """Fetch a pending message from the database"""
@@ -1430,6 +1449,18 @@ class A2AWorker:
         
         while self.running:
             try:
+                # Check for morning updates every minute
+                if self.morning_update_manager:
+                    current_time = datetime.now()
+                    # Check once per minute
+                    if (self.last_morning_update_check is None or 
+                        (current_time - self.last_morning_update_check).seconds >= 60):
+                        
+                        self.last_morning_update_check = current_time
+                        sent_count = await self.morning_update_manager.check_and_send_updates()
+                        if sent_count > 0:
+                            logger.info(f"Sent {sent_count} morning updates")
+                
                 # Get pending message
                 message = await self.get_pending_message()
                 
