@@ -939,8 +939,8 @@ Here's my current message: {content}"""
                 if tool_results:
                     # Add cache control to the first tool result
                     cached_tool_results = []
-                    for i, result in enumerate(tool_results):
-                        cached_result = result.copy()
+                    for i, tool_result in enumerate(tool_results):
+                        cached_result = tool_result.copy()
                         if i == 0:
                             cached_result["cache_control"] = {"type": "ephemeral"}
                         cached_tool_results.append(cached_result)
