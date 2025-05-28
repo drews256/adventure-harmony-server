@@ -958,11 +958,8 @@ Here's my current message: {content}"""
                             result["text"] += content_block.text
                     break
             
-            # If we exited the loop normally (no more tool calls), get the final text from the last response
-            if tool_iterations < MAX_TOOL_ITERATIONS:
-                for content_block in response.content:
-                    if content_block.type == "text":
-                        result["text"] += content_block.text
+            # If we exited the loop normally (no more tool calls), we've already extracted the text
+            # in the main loop when has_tool_calls was False, so we don't need to do it again
             
             logger.info(f"✅ Completed processing with {tool_iterations} tool iteration(s)")
             
