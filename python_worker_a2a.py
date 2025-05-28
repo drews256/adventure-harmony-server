@@ -782,41 +782,55 @@ class A2AMessageProcessor:
                     "input_schema": tool.input_schema
                 })
             
-            # Build enhanced prompt with system instructions
-            enhanced_prompt = f"""
-    Todays Date and Time: {datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
+            # Build system content with cache control for the system parameter
+            system_content = [
+                {
+                    "type": "text",
+                    "text": """The primary interface you're corresponding with is through text messages. 
 
-    The primary interface you're corresponding with is through text messages. 
+It's relatively important that you keep your responses short and to the point to that we can handle it like the text message that it is.
 
-    It's relatively important that you keep your responses short and to the point to that we can handle it like the text message that it is.
+Also - don't refer to the tools by name - that's confusing. Refer to the tools using concepts that are relatable to someone running an outfitting business.  
 
-    Also - don't refer to the tools by name - that's confusing. Refer to the tools using concepts that are relatable to someone running an outfitting business.  
+You're corresponding with a client who is managing an outfitter, that outfitter has a website and accepts bookings (also called orders or orderlines). 
+They present those offerings as listings in a plugin page on their websites and we accept bookings in many ways. 
+We can create bookings through the plugin on their website, or we can create bookings through the phone, they can also create manual bookings through the website. 
+Sometimes they create completely custom bookings that don't relate to listings too.  
 
-    You're corresponding with a client who is managing an outfitter, that outfitter has a website and accepts bookings (also called orders or orderlines). 
-    They present those offerings as listings in a plugin page on their websites and we accept bookings in many ways. 
-    We can create bookings through the plugin on their website, or we can create bookings through the phone, they can also create manual bookings through the website. 
-    Sometimes they create completely custom bookings that don't relate to listings too.  
+I'm reviewing our conversation history. Please reference ALL previous messages in your response, including ones that might seem to be from a separate conversation. 
 
-    I'm reviewing our conversation history. Please reference ALL previous messages in your response, including ones that might seem to be from a separate conversation. 
+Don't be confused by messages that seem unrelated - I expect you to have access to my entire message history, so treat all previous messages as relevant context.
 
-    Don't be confused by messages that seem unrelated - I expect you to have access to my entire message history, so treat all previous messages as relevant context.
+Please don't tell me that you're following my instructions - Please just follow them. For example - I don't need you to tell me that you're responding in a way that works for a text message, keeping the response short. Or anything like that.
 
-    Please don't tell me that you're following my instructions - Please just follow them. For example - I don't need you to tell me that you're responding in a way that works for a text message, keeping the response short. Or anything like that.
+IMPORTANT: Before using tools, check if you've already used similar tools in previous messages. If relevant tool results already exist in our conversation history, use that information instead of making duplicate tool calls. This will save time and provide a better experience.
 
-    IMPORTANT: Before using tools, check if you've already used similar tools in previous messages. If relevant tool results already exist in our conversation history, use that information instead of making duplicate tool calls. This will save time and provide a better experience.
+For example, if you see I previously asked about generating a token and you already fetched that information, don't fetch it again - just reference the existing results and continue the conversation.
 
-    For example, if you see I previously asked about generating a token and you already fetched that information, don't fetch it again - just reference the existing results and continue the conversation.
+Also - tool runs in this context occur immediately when you respond with a tool call. Please don't ask me for permission to run tools - if you need a tool run - please run it.""",
+                    "cache_control": {"type": "ephemeral"}
+                }
+            ]
+            
+            # Build user prompt with current context
+            enhanced_prompt = f"""Todays Date and Time: {datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
 
-    Also - tool runs in this context occur immediately when you respond with a tool call. Please don't ask me for permission to run tools - if you need a tool run - please run it. 
-
-    Here's my current message: {content}"""
+Here's my current message: {content}"""
             
             # Initialize tool iteration counter
             tool_iterations = 0
             MAX_TOOL_ITERATIONS = 5
             
-            # Build initial messages
-            messages = conversation_history + [{"role": "user", "content": enhanced_prompt}]
+            # Build initial messages with cache control
+            messages = []
+            
+            # Add conversation history if we have history
+            if conversation_history:
+                # Add conversation history as-is, it's already been processed
+                messages.extend(conversation_history)
+            
+            # Add the current user message
+            messages.append({"role": "user", "content": enhanced_prompt})
             
             # Result container
             result = {
@@ -828,9 +842,10 @@ class A2AMessageProcessor:
             while tool_iterations < MAX_TOOL_ITERATIONS:
                 # Build the request parameters
                 request_params = {
-                    "model": "claude-3-5-sonnet-20241022",
+                    "model": "claude-3-5-sonnet-20241022",  # This model supports prompt caching
                     "max_tokens": 1000,
                     "temperature": 0.7,
+                    "system": system_content,  # System parameter with cache control
                     "messages": messages
                 }
                 
@@ -839,8 +854,15 @@ class A2AMessageProcessor:
                     request_params["tools"] = claude_tools
                     request_params["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": False}
                 
-                # Call Claude
+                # Call Claude with prompt caching
                 response = anthropic.messages.create(**request_params)
+                
+                # Log cache usage if available
+                if hasattr(response, 'usage') and hasattr(response.usage, 'cache_creation_input_tokens'):
+                    cache_creation = getattr(response.usage, 'cache_creation_input_tokens', 0)
+                    cache_read = getattr(response.usage, 'cache_read_input_tokens', 0)
+                    if cache_creation > 0 or cache_read > 0:
+                        logger.info(f"💾 Cache usage - Created: {cache_creation} tokens, Read: {cache_read} tokens")
                 
                 # Check if Claude made any tool calls
                 has_tool_calls = any(content_block.type == "tool_use" for content_block in response.content)
@@ -903,7 +925,19 @@ class A2AMessageProcessor:
                 
                 # Add assistant response and tool results to messages
                 messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": tool_results})
+                
+                # Add tool results with cache control on the first result
+                if tool_results:
+                    # Add cache control to the first tool result
+                    cached_tool_results = []
+                    for i, result in enumerate(tool_results):
+                        cached_result = result.copy()
+                        if i == 0:
+                            cached_result["cache_control"] = {"type": "ephemeral"}
+                        cached_tool_results.append(cached_result)
+                    messages.append({"role": "user", "content": cached_tool_results})
+                else:
+                    messages.append({"role": "user", "content": tool_results})
                 
                 # Check if we've hit the iteration limit
                 if tool_iterations >= MAX_TOOL_ITERATIONS:
@@ -913,6 +947,7 @@ class A2AMessageProcessor:
                         "model": "claude-3-5-sonnet-20241022",
                         "max_tokens": 1000,
                         "temperature": 0.7,
+                        "system": system_content,  # Include system parameter
                         "messages": messages + [{"role": "user", "content": "Please provide a final response based on the tool results you've gathered. No more tools are available."}]
                     }
                     final_response = anthropic.messages.create(**final_params)
