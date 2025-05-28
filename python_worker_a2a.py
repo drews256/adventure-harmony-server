@@ -971,6 +971,7 @@ Here's my current message: {content}"""
             # in the main loop when has_tool_calls was False, so we don't need to do it again
             
             logger.info(f"✅ Completed processing with {tool_iterations} tool iteration(s)")
+            logger.info(f"📊 Final result structure: text={len(result.get('text', ''))} chars, tool_calls={len(result.get('tool_calls', []))} calls")
             
             return A2AMessage(
                 jsonrpc="2.0",
@@ -980,6 +981,9 @@ Here's my current message: {content}"""
             
         except Exception as e:
             logger.error(f"Error processing message with Claude: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return A2AMessage(
                 jsonrpc="2.0",
                 id=a2a_message.id,
@@ -1329,6 +1333,12 @@ class A2AWorker:
             
             # Extract response
             result = a2a_response.result
+            
+            # Validate result structure
+            if not isinstance(result, dict):
+                logger.error(f"Unexpected result type: {type(result)}, value: {result}")
+                raise Exception(f"Invalid result type: expected dict, got {type(result)}")
+            
             response_text = result.get("text", "")
             
             # Save response - keep it simple
@@ -1346,8 +1356,13 @@ class A2AWorker:
             
             # Only add optional fields if they exist in the original message
             if "metadata" in message:
+                # Ensure result is JSON serializable
+                metadata_result = {
+                    "text": result.get("text", ""),
+                    "tool_calls": result.get("tool_calls", [])
+                }
                 response_data["metadata"] = {
-                    "a2a_result": result,
+                    "a2a_result": metadata_result,
                     "protocol": "A2A"
                 }
             
