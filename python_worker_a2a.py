@@ -22,13 +22,15 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # Add morning update support
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'agents'))
+agents_path = os.path.join(os.path.dirname(__file__), 'src', 'agents')
+sys.path.append(agents_path)
 try:
     from morning_update import MorningUpdateManager
     MORNING_UPDATE_AVAILABLE = True
-except ImportError:
+    logging.info(f"Morning update module loaded successfully from {agents_path}")
+except ImportError as e:
     MORNING_UPDATE_AVAILABLE = False
-    logging.warning("Morning update module not available")
+    logging.warning(f"Morning update module not available: {e}")
 
 # Try to import MCP
 try:
