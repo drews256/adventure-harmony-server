@@ -984,6 +984,17 @@ Here's my current message: {content}"""
         except Exception as e:
             logger.error(f"Error processing message with Claude: {e}")
             logger.error(f"Exception type: {type(e).__name__}")
+            
+            # Special handling for rate limit errors
+            if "rate_limit" in str(e).lower():
+                logger.error("RATE LIMIT ERROR DETECTED")
+                if "input tokens per minute" in str(e):
+                    logger.error(f"Rate limit: Input tokens per minute exceeded")
+                    logger.error(f"Current conversation history has {len(conversation_history)} messages")
+                    estimated_tokens = self.estimate_token_count(messages)
+                    logger.error(f"Estimated tokens in request: {estimated_tokens}")
+                logger.error(f"Full error details: {str(e)}")
+            
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return A2AMessage(
@@ -1035,21 +1046,22 @@ class A2AWorker:
             return None
     
     async def get_conversation_history_by_phone(self, phone_number: str, current_message_id: str) -> List[Dict[str, Any]]:
-        """Fetch conversation history with a specific phone number, limited to last 50 messages
+        """Fetch conversation history with a specific phone number, limited to last 30 messages
         
         This simplified approach treats all messages to/from a phone number as one continuous
         conversation, which makes more sense for SMS where users expect their entire message
         history to be available as context.
         """
         try:
-            # Get last 50 messages to/from this phone number (excluding current message)
+            # Get last 30 messages to/from this phone number (excluding current message)
             # We use phone_number field which should always be present
+            # Reduced from 50 to 30 to help avoid rate limits
             result = supabase.table("conversation_messages") \
                 .select("*") \
                 .eq("phone_number", phone_number) \
                 .neq("id", current_message_id) \
                 .order("created_at", desc=True) \
-                .limit(50) \
+                .limit(30) \
                 .execute()
             
             if not result.data:
@@ -1058,7 +1070,7 @@ class A2AWorker:
             
             # Reverse to get chronological order (oldest first)
             messages = list(reversed(result.data))
-            logger.info(f"Found {len(messages)} messages for phone number: {phone_number} (limited to last 50)")
+            logger.info(f"Found {len(messages)} messages for phone number: {phone_number} (limited to last 30)")
             
             # Build conversation history with proper tool handling
             claude_messages = self.build_conversation_history_with_tools(messages)
@@ -1248,7 +1260,7 @@ class A2AWorker:
         # Rough approximation: ~4 characters per token
         return total_chars // 4
     
-    def filter_messages_by_tokens(self, messages: List[Dict[str, Any]], max_tokens: int = 40000) -> List[Dict[str, Any]]:
+    def filter_messages_by_tokens(self, messages: List[Dict[str, Any]], max_tokens: int = 20000) -> List[Dict[str, Any]]:
         """Filter messages to stay under token limit, reducing from the beginning"""
         if not messages:
             return messages
@@ -1273,6 +1285,7 @@ class A2AWorker:
         final_token_count = self.estimate_token_count(filtered_messages)
         if len(filtered_messages) < len(messages):
             logger.info(f"Filtered conversation history from {len(messages)} to {len(filtered_messages)} messages (~{final_token_count} tokens)")
+            logger.info(f"Removed {len(messages) - len(filtered_messages)} oldest messages to stay under {max_tokens} token limit")
         
         return filtered_messages
     
