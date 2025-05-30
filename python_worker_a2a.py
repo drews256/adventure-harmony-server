@@ -1437,7 +1437,7 @@ class A2AWorker:
                     
                     # Include more details for specific errors
                     if "rate_limit" in str(e).lower():
-                        error_message = "I'm currently experiencing high demand. Please try again in a few moments."
+                        error_message = f"Rate limit error: {str(e)}"
                     elif "connection" in str(e).lower() or "network" in str(e).lower():
                         error_message = "I'm having trouble connecting to services. Please try again shortly."
                     
