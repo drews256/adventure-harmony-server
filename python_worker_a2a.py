@@ -1388,6 +1388,11 @@ class A2AWorker:
                 .eq("id", message["id"]) \
                 .execute()
             
+            # Log successful processing
+            logger.info(f"Successfully processed message {message['id']}")
+            logger.info(f"Response length: {len(response_text)} characters")
+            logger.info(f"Tool calls made: {len(result.get('tool_calls', []))}")
+            
             # Send SMS via Supabase function
             # Get the recipient number (incoming message's sender)
             recipient = message.get("from_number") or message.get("phone_number")
@@ -1395,6 +1400,7 @@ class A2AWorker:
             if response_text and recipient:
                 try:
                     # Use Supabase function to send SMS
+                    logger.info(f"Attempting to send SMS to {recipient}")
                     sms_result = supabase.functions.invoke(
                         "send-sms",
                         invoke_options={
@@ -1404,15 +1410,26 @@ class A2AWorker:
                             }
                         }
                     )
-                    logger.info(f"SMS sent to {recipient}: {response_text[:100]}...")
+                    logger.info(f"SMS sent successfully to {recipient}: {response_text[:100]}...")
+                    logger.info(f"SMS result: {sms_result}")
                 except Exception as sms_error:
                     logger.error(f"Failed to send SMS: {sms_error}")
+                    logger.error(f"SMS error type: {type(sms_error).__name__}")
+                    logger.error(f"SMS error details: {str(sms_error)}")
                     # Don't fail the whole process if SMS fails
             else:
                 logger.warning(f"No SMS sent - recipient: {recipient}, has_response: {bool(response_text)}")
             
         except Exception as e:
             logger.error(f"Error processing message: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Message ID: {message.get('id', 'unknown')}")
+            logger.error(f"Phone number: {message.get('phone_number', 'unknown')}")
+            logger.error(f"Message content: {message.get('content', 'unknown')[:100]}...")
+            
+            # Log full traceback for debugging
+            import traceback
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
             
             # Update status to failed
             error_update = {"status": "failed"}
@@ -1437,9 +1454,13 @@ class A2AWorker:
                     
                     # Include more details for specific errors
                     if "rate_limit" in str(e).lower():
+                        logger.error(f"Rate limit error detected: {str(e)}")
                         error_message = f"Rate limit error: {str(e)}"
                     elif "connection" in str(e).lower() or "network" in str(e).lower():
+                        logger.error(f"Connection/Network error detected: {str(e)}")
                         error_message = "I'm having trouble connecting to services. Please try again shortly."
+                    else:
+                        logger.error(f"Other error type: {str(e)}")
                     
                     sms_result = supabase.functions.invoke(
                         "send-sms",
