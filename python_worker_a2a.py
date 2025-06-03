@@ -1069,22 +1069,22 @@ class A2AWorker:
             return None
     
     async def get_conversation_history_by_phone(self, phone_number: str, current_message_id: str) -> List[Dict[str, Any]]:
-        """Fetch conversation history with a specific phone number, limited to last 30 messages
+        """Fetch conversation history with a specific phone number, limited to last 5 messages
         
         This simplified approach treats all messages to/from a phone number as one continuous
         conversation, which makes more sense for SMS where users expect their entire message
         history to be available as context.
         """
         try:
-            # Get last 30 messages to/from this phone number (excluding current message)
+            # Get last 5 messages to/from this phone number (excluding current message)
             # We use phone_number field which should always be present
-            # Reduced from 50 to 30 to help avoid rate limits
+            # Reduced from 30 to 5 to help avoid rate limits
             result = supabase.table("conversation_messages") \
                 .select("*") \
                 .eq("phone_number", phone_number) \
                 .neq("id", current_message_id) \
                 .order("created_at", desc=True) \
-                .limit(30) \
+                .limit(5) \
                 .execute()
             
             if not result.data:
@@ -1093,7 +1093,7 @@ class A2AWorker:
             
             # Reverse to get chronological order (oldest first)
             messages = list(reversed(result.data))
-            logger.info(f"Found {len(messages)} messages for phone number: {phone_number} (limited to last 30)")
+            logger.info(f"Found {len(messages)} messages for phone number: {phone_number} (limited to last 5)")
             
             # Build conversation history with proper tool handling
             claude_messages = self.build_conversation_history_with_tools(messages)
