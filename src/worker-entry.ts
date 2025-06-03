@@ -1196,16 +1196,53 @@ ${enhancedPrompt}`;
     console.log(`Final message count after validation: ${finalValidatedMessages.length}`);
     console.log('=== END FINAL VALIDATION ===');
     
+    // Log the complete context being sent to Anthropic
+    console.log('='.repeat(80));
+    console.log('🔍 COMPLETE CONTEXT BEING SENT TO ANTHROPIC:');
+    console.log('='.repeat(80));
+    
+    // Build the complete request object
+    const requestParams = {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 1000,
+      temperature: 0.7,
+      tools,
+      tool_choice: {type: 'auto' as const, disable_parallel_tool_use: false},
+      messages: finalValidatedMessages
+    };
+    
+    // Log messages
+    console.log(`\n📨 MESSAGES (count: ${finalValidatedMessages.length}):`);
+    finalValidatedMessages.forEach((msg, i) => {
+      console.log(`\n--- Message ${i+1} ---`);
+      console.log(JSON.stringify(msg, null, 2));
+    });
+    
+    // Log tools
+    console.log(`\n🔧 TOOLS (count: ${tools.length}):`);
+    tools.forEach((tool, i) => {
+      console.log(`\n--- Tool ${i+1}: ${tool.name} ---`);
+      console.log(JSON.stringify(tool, null, 2));
+    });
+    
+    // Calculate and log total size
+    const totalJson = JSON.stringify(requestParams);
+    const totalSize = totalJson.length;
+    const estimatedTokens = Math.floor(totalSize / 4); // Rough estimate
+    
+    console.log(`\n📊 TOTAL CONTEXT SIZE:`);
+    console.log(`  - Total characters: ${totalSize.toLocaleString()}`);
+    console.log(`  - Estimated tokens: ${estimatedTokens.toLocaleString()}`);
+    console.log(`  - Messages size: ${JSON.stringify(finalValidatedMessages).length.toLocaleString()} chars`);
+    console.log(`  - Tools size: ${JSON.stringify(tools).length.toLocaleString()} chars`);
+    
+    console.log('='.repeat(80));
+    console.log('🚀 Sending request to Anthropic...');
+    console.log('='.repeat(80));
+    
     // Call Claude with retry logic
     const response = await withRetry(
-      () => anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 1000,
-        temperature: 0.7,
-        tools,
-        tool_choice: {type: 'auto', disable_parallel_tool_use: false},
-        messages: finalValidatedMessages
-      }),
+      () => anthropic.messages.create(requestParams),
       {
         maxRetries: 2,
         retryableErrors: ['rate limit', 'timeout', 'network error']

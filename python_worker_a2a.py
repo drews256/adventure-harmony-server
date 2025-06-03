@@ -865,6 +865,45 @@ Here's my current message: {content}"""
                     request_params["tools"] = claude_tools
                     request_params["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": False}
                 
+                # Log the complete context being sent to Anthropic
+                logger.info("=" * 80)
+                logger.info("🔍 COMPLETE CONTEXT BEING SENT TO ANTHROPIC:")
+                logger.info("=" * 80)
+                
+                # Log system content
+                logger.info(f"📋 SYSTEM CONTENT (length: {len(json.dumps(system_content))} chars):")
+                logger.info(json.dumps(system_content, indent=2))
+                
+                # Log messages
+                logger.info(f"\n📨 MESSAGES (count: {len(messages)}):")
+                for i, msg in enumerate(messages):
+                    logger.info(f"\n--- Message {i+1} ---")
+                    logger.info(json.dumps(msg, indent=2))
+                
+                # Log tools if present
+                if claude_tools:
+                    logger.info(f"\n🔧 TOOLS (count: {len(claude_tools)}):")
+                    for i, tool in enumerate(claude_tools):
+                        logger.info(f"\n--- Tool {i+1}: {tool.get('name', 'Unknown')} ---")
+                        logger.info(json.dumps(tool, indent=2))
+                
+                # Calculate and log total size
+                total_json = json.dumps(request_params)
+                total_size = len(total_json)
+                estimated_tokens = total_size // 4  # Rough estimate
+                
+                logger.info(f"\n📊 TOTAL CONTEXT SIZE:")
+                logger.info(f"  - Total characters: {total_size:,}")
+                logger.info(f"  - Estimated tokens: {estimated_tokens:,}")
+                logger.info(f"  - System content size: {len(json.dumps(system_content)):,} chars")
+                logger.info(f"  - Messages size: {len(json.dumps(messages)):,} chars")
+                if claude_tools:
+                    logger.info(f"  - Tools size: {len(json.dumps(claude_tools)):,} chars")
+                
+                logger.info("=" * 80)
+                logger.info("🚀 Sending request to Anthropic...")
+                logger.info("=" * 80)
+                
                 # Call Claude with prompt caching
                 response = anthropic.messages.create(**request_params)
                 
