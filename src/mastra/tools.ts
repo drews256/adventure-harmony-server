@@ -4,6 +4,14 @@ import { SMSTool } from '../services/sms-tool';
 import { FormGenerator } from '../services/form-generator';
 import { CalendarTool } from '../services/calendar-tool';
 import { createClient } from '@supabase/supabase-js';
+import {
+  checkAvailabilityTool,
+  createBookingTool,
+  updateBookingTool,
+  getBookingDetailsTool,
+  listProductsTool,
+  calculatePricingTool
+} from './tools/bookingTools';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -201,5 +209,12 @@ export const mastraTools = {
   sms: smsToolMastra,
   formGenerator: formGeneratorToolMastra,
   calendar: calendarToolMastra,
-  formWithSMS: formWithSMSToolMastra
+  formWithSMS: formWithSMSToolMastra,
+  // Booking tools
+  checkAvailability: checkAvailabilityTool,
+  createBooking: createBookingTool,
+  updateBooking: updateBookingTool,
+  getBookingDetails: getBookingDetailsTool,
+  listProducts: listProductsTool,
+  calculatePricing: calculatePricingTool
 };

@@ -54,16 +54,24 @@ export async function processMessageWithMastra(
 function selectAgentForMessage(message: string): any {
   const lowerMessage = message.toLowerCase();
   
+  // Booking-specific keywords (check first for highest priority)
+  if (lowerMessage.includes('book') || lowerMessage.includes('booking') || 
+      lowerMessage.includes('reserve') || lowerMessage.includes('reservation') ||
+      lowerMessage.includes('tour') || lowerMessage.includes('activity') ||
+      lowerMessage.includes('rental') || lowerMessage.includes('ticket')) {
+    return mastraAgents.booking;
+  }
+  
   // Form-related keywords
   if (lowerMessage.includes('form') || lowerMessage.includes('survey') || 
       lowerMessage.includes('questionnaire') || lowerMessage.includes('collect')) {
     return mastraAgents.formManager;
   }
   
-  // Calendar/scheduling keywords  
+  // Calendar/scheduling keywords (removed 'booking' as it's handled above)
   if (lowerMessage.includes('calendar') || lowerMessage.includes('schedule') ||
-      lowerMessage.includes('event') || lowerMessage.includes('booking') ||
-      lowerMessage.includes('available') || lowerMessage.includes('appointment')) {
+      lowerMessage.includes('event') || lowerMessage.includes('available') || 
+      lowerMessage.includes('appointment')) {
     return mastraAgents.scheduling;
   }
   

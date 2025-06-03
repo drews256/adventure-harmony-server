@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { anthropic } from '@ai-sdk/anthropic';
 import { mastraTools } from './tools';
+import { bookingAgent } from './agents/bookingAgent';
 
 // Main message processing agent with all tools
 export const messageProcessingAgent = new Agent({
@@ -132,5 +133,6 @@ export const mastraAgents = {
   messageProcessor: messageProcessingAgent,
   formManager: formManagerAgent, 
   communication: communicationAgent,
-  scheduling: schedulingAgent
+  scheduling: schedulingAgent,
+  booking: bookingAgent
 };
