@@ -974,7 +974,22 @@ Here's my current message: {content}"""
                             })
                 
                 # Add assistant response and tool results to messages
-                messages.append({"role": "assistant", "content": response.content})
+                # Convert response.content objects to dictionaries
+                assistant_content = []
+                for content_block in response.content:
+                    if content_block.type == "text":
+                        assistant_content.append({
+                            "type": "text",
+                            "text": content_block.text
+                        })
+                    elif content_block.type == "tool_use":
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": content_block.id,
+                            "name": content_block.name,
+                            "input": content_block.input
+                        })
+                messages.append({"role": "assistant", "content": assistant_content})
                 
                 # Add tool results with cache control on the first result
                 if tool_results:
