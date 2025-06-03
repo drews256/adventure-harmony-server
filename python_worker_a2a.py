@@ -1006,6 +1006,29 @@ Here's my current message: {content}"""
                     "data": {"details": str(e)}
                 }
             )
+    
+    def estimate_token_count(self, messages: List[Dict[str, Any]]) -> int:
+        """Estimate token count for messages (rough approximation)"""
+        total_chars = 0
+        
+        for msg in messages:
+            # Count role
+            total_chars += len(msg.get("role", ""))
+            
+            # Count content
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total_chars += len(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        # Count all string values in the block
+                        for value in block.values():
+                            if isinstance(value, str):
+                                total_chars += len(value)
+        
+        # Rough approximation: ~4 characters per token
+        return total_chars // 4
 
 
 class A2AWorker:
