@@ -1386,7 +1386,7 @@ class A2AWorker:
             
             # Filter conversation history to stay under token limits
             # This prevents rate limit errors by limiting context size
-            history = self.filter_conversation_history(history, max_tokens=10000)
+            history = self.filter_messages_by_tokens(history, max_tokens=10000)
             
             logger.info(f"After filtering: {len(history)} messages in conversation history")
             
