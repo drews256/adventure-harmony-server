@@ -1384,6 +1384,12 @@ class A2AWorker:
             
             logger.info(f"Retrieved {len(history)} messages in conversation history")
             
+            # Filter conversation history to stay under token limits
+            # This prevents rate limit errors by limiting context size
+            history = self.filter_conversation_history(history, max_tokens=10000)
+            
+            logger.info(f"After filtering: {len(history)} messages in conversation history")
+            
             # Log conversation history structure for debugging
             if history:
                 logger.info("Conversation history structure:")
