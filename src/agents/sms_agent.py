@@ -100,7 +100,7 @@ class SMSAgent:
         )
         await self.mcp_client.initialize()
     
-    async def _get_mcp_tools(self) -> List[Tool]:
+    async def _get_mcp_tools(self) -> List[MCPTool]:
         """Get available tools from MCP server and wrap them for Agno"""
         tools = []
         
