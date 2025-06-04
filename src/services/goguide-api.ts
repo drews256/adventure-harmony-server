@@ -119,16 +119,8 @@ export class GoGuideAPIClient {
               errorStr.includes('Failed to reconnect')) {
             console.log('Critical connection failure, explicitly resetting connection...');
             
-            // Try to reset the connection if available
-            try {
-              const workerModule = await import('../worker-entry');
-              if (workerModule && typeof workerModule.resetMcpClient === 'function') {
-                await workerModule.resetMcpClient();
-                console.log('Connection reset successfully');
-              }
-            } catch (resetError) {
-              console.error('Failed to reset connection:', resetError);
-            }
+            // Connection reset functionality not implemented yet
+            console.log('Connection reset would happen here if implemented');
           }
         }
       }
@@ -212,15 +204,8 @@ export class GoGuideAPIClient {
           // Only reset on critical failures
           if (errorStr.includes('Maximum reconnection attempts exceeded') ||
               errorStr.includes('Failed to reconnect')) {
-            try {
-              const workerModule = await import('../worker-entry');
-              if (workerModule && typeof workerModule.resetMcpClient === 'function') {
-                await workerModule.resetMcpClient();
-                console.log('Connection reset successfully during tool lookup');
-              }
-            } catch (resetError) {
-              console.error('Failed to reset connection during tool lookup:', resetError);
-            }
+            // Connection reset functionality not implemented yet
+            console.log('Connection reset would happen here if implemented during tool lookup');
           }
         }
       }
@@ -299,15 +284,8 @@ export class GoGuideAPIClient {
           // Only reset on critical failures
           if (errorStr.includes('Maximum reconnection attempts exceeded') ||
               errorStr.includes('Failed to reconnect')) {
-            try {
-              const workerModule = await import('../worker-entry');
-              if (workerModule && typeof workerModule.resetMcpClient === 'function') {
-                await workerModule.resetMcpClient();
-                console.log('Connection reset successfully during tool call');
-              }
-            } catch (resetError) {
-              console.error('Failed to reset connection during tool call:', resetError);
-            }
+            // Connection reset functionality not implemented yet
+            console.log('Connection reset would happen here if implemented during tool call');
           }
         }
       }
