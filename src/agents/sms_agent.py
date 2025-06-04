@@ -12,7 +12,6 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 import agno
-from agno import Agent
 from agno.tools import Tool, ToolResult
 from mcp import ClientSession, StdioServerParameters
 from supabase import Client as SupabaseClient
