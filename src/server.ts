@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { Anthropic } from '@anthropic-ai/sdk';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { createPatchedStreamableHTTPTransport } from './utils/patched-streamable-http.js';
 
@@ -53,9 +52,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 // Initialize calendar tool
 const calendarTool = new CalendarTool(supabase);
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-});
 
 let mcpClient: Client | null = null;
 

@@ -12,9 +12,13 @@ The system consists of two main components:
 
 1. **Server** (`src/server.ts`): An Express server that exposes API endpoints for message analysis and health checks. It receives incoming messages and queues them for processing.
 
-2. **Worker** (`python_worker_a2a.py`): A Python background process that picks up pending messages from the database, processes them with Claude, executes any tool calls, and sends responses back to users via SMS. This worker implements Google's A2A (Application-to-Agent) protocol for standardized agent communication and interoperability.
+2. **Worker** (`python_worker_agno.py`): A Python background process that uses the Agno framework for agent orchestration. It picks up pending messages from the database, processes them with Agno agents (which use Claude), executes tool calls via MCP server integration, and sends responses back to users via SMS.
 
-The application uses Supabase for database storage and the Anthropic API for Claude integration.
+The application uses:
+- **Agno**: A high-performance multi-agent framework for building agentic systems
+- **MCP (Model Context Protocol)**: For tool execution and external system integration
+- **Supabase**: For database storage
+- **Anthropic API**: For Claude AI integration through Agno
 
 ## Database Structure
 
@@ -37,25 +41,25 @@ cp .env.example .env
 # Build TypeScript code
 npm run build
 
-# Run server and TypeScript worker in development mode (with hot reloading)
+# Run server in development mode (with hot reloading)
 npm run dev
 
 # Run only the server in development mode
 npm run dev:server
 
-# Run only the TypeScript worker in development mode
-npm run dev:worker
+# Run the Agno Python worker in development mode
+npm run dev:agno-worker
 
-# Run the Python worker in development mode
+# Run the A2A Python worker in development mode (legacy)
 npm run dev:python-worker
 
 # Start the server in production mode
 npm start
 
-# Start the TypeScript worker in production mode
-npm run start:worker
+# Start the Agno worker in production mode
+npm run start:agno-worker
 
-# Start the Python worker in production mode
+# Start the A2A Python worker in production mode (legacy)
 npm run start:python-worker
 ```
 
@@ -69,4 +73,6 @@ Required environment variables:
 
 ## Deployment
 
-The deployment uses the `Procfile` to run both the web server and the worker process. The worker is implemented in Python using the A2A protocol.
+The deployment uses the `Procfile.agno` to run both the web server and the Agno-based worker process:
+- Web: `npm start` - Runs the Express server
+- Worker: `python python_worker_agno.py` - Runs the Agno-based message processing worker

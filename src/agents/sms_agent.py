@@ -1,0 +1,194 @@
+"""
+SMS Message Agent using Agno Framework
+
+This agent handles incoming SMS messages, processes them with Claude,
+and executes tool calls via MCP server integration.
+"""
+
+import os
+import json
+import asyncio
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+
+from agno import Agent, Agno
+from agno.models import ChatModel
+from agno.tools import Tool, ToolResult
+from mcp import ClientSession, StdioServerParameters
+from supabase import Client as SupabaseClient
+import httpx
+
+class MCPTool(Tool):
+    """Wrapper for MCP tools to work with Agno"""
+    
+    def __init__(self, name: str, description: str, mcp_client: ClientSession):
+        super().__init__(name=name, description=description)
+        self.mcp_client = mcp_client
+        self._mcp_tool_name = name
+    
+    async def execute(self, **kwargs) -> ToolResult:
+        """Execute the MCP tool"""
+        try:
+            # Call the MCP tool
+            result = await self.mcp_client.call_tool(self._mcp_tool_name, kwargs)
+            
+            # Return success result
+            return ToolResult(
+                success=True,
+                data=result.content if hasattr(result, 'content') else str(result)
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=str(e)
+            )
+
+
+class SMSAgent:
+    """Agent for handling SMS messages using Agno and MCP"""
+    
+    def __init__(self, supabase_client: SupabaseClient, mcp_server_url: str):
+        self.supabase = supabase_client
+        self.mcp_server_url = mcp_server_url
+        self.agno = Agno()
+        self.mcp_client = None
+        self.agent = None
+        
+    async def initialize(self):
+        """Initialize the agent with MCP tools"""
+        # Initialize MCP client
+        await self._init_mcp_client()
+        
+        # Get available tools from MCP
+        tools = await self._get_mcp_tools()
+        
+        # Create Agno agent
+        self.agent = Agent(
+            name="SMSAgent",
+            instructions="""You are a helpful SMS assistant for Adventure Harmony Planner.
+            You help users with:
+            - Booking tours, activities, and rentals
+            - Checking weather information
+            - Managing their calendar
+            - Answering questions about destinations
+            
+            Always be concise and friendly. Remember that responses will be sent via SMS,
+            so keep them brief and to the point.""",
+            model=ChatModel.CLAUDE_3_5_SONNET,
+            tools=tools
+        )
+        
+        # Register the agent with Agno
+        self.agno.register_agent(self.agent)
+    
+    async def _init_mcp_client(self):
+        """Initialize MCP client connection"""
+        # Parse MCP server URL to get host and port
+        if ":" in self.mcp_server_url:
+            host, port = self.mcp_server_url.split(":")
+            port = int(port)
+        else:
+            host = self.mcp_server_url
+            port = 3001  # Default MCP port
+        
+        # Create MCP client session
+        transport = httpx.AsyncHTTPTransport()
+        self.mcp_client = ClientSession(
+            server_params=StdioServerParameters(
+                command=f"http://{host}:{port}"
+            )
+        )
+        await self.mcp_client.initialize()
+    
+    async def _get_mcp_tools(self) -> List[Tool]:
+        """Get available tools from MCP server and wrap them for Agno"""
+        tools = []
+        
+        # List available tools from MCP
+        available_tools = await self.mcp_client.list_tools()
+        
+        for tool in available_tools.tools:
+            # Create Agno-compatible tool wrapper
+            agno_tool = MCPTool(
+                name=tool.name,
+                description=tool.description or f"MCP tool: {tool.name}",
+                mcp_client=self.mcp_client
+            )
+            tools.append(agno_tool)
+        
+        return tools
+    
+    async def process_message(self, message: str, conversation_id: str, phone_number: str) -> str:
+        """Process an incoming SMS message and return response"""
+        
+        # Get conversation history
+        history = await self._get_conversation_history(conversation_id)
+        
+        # Create session context
+        session_data = {
+            "conversation_id": conversation_id,
+            "phone_number": phone_number,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        # Run agent with Agno
+        response = await self.agno.run(
+            agent=self.agent,
+            messages=[
+                {"role": msg["role"], "content": msg["content"]} 
+                for msg in history
+            ] + [{"role": "user", "content": message}],
+            session_data=session_data,
+            stream=False
+        )
+        
+        # Extract the response text
+        if hasattr(response, 'content'):
+            return response.content
+        else:
+            return str(response)
+    
+    async def _get_conversation_history(self, conversation_id: str) -> List[Dict[str, str]]:
+        """Get conversation history from database"""
+        try:
+            # Query recent messages for this conversation
+            result = self.supabase.table('conversation_messages').select(
+                'content,direction,role'
+            ).eq(
+                'conversation_id', conversation_id
+            ).order(
+                'created_at', desc=False
+            ).limit(10).execute()
+            
+            # Convert to format expected by Agno
+            history = []
+            for msg in result.data:
+                if msg['direction'] == 'incoming':
+                    history.append({
+                        'role': 'user',
+                        'content': msg['content']
+                    })
+                else:
+                    history.append({
+                        'role': 'assistant', 
+                        'content': msg['content']
+                    })
+            
+            return history
+            
+        except Exception as e:
+            print(f"Error getting conversation history: {e}")
+            return []
+    
+    async def cleanup(self):
+        """Clean up resources"""
+        if self.mcp_client:
+            await self.mcp_client.close()
+
+
+# Factory function to create agent
+async def create_sms_agent(supabase_client: SupabaseClient, mcp_server_url: str) -> SMSAgent:
+    """Create and initialize SMS agent"""
+    agent = SMSAgent(supabase_client, mcp_server_url)
+    await agent.initialize()
+    return agent

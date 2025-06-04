@@ -1,5 +1,3 @@
-import type { MessageParam } from '@anthropic-ai/sdk/resources/messages/messages';
-
 export type ConversationJobStatus = 
   | 'pending'
   | 'processing'
@@ -7,6 +5,11 @@ export type ConversationJobStatus =
   | 'tool_complete'
   | 'completed'
   | 'failed';
+
+export interface ConversationMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
 
 export interface ConversationJob {
   id: string;
@@ -17,7 +20,7 @@ export interface ConversationJob {
   status: ConversationJobStatus;
   current_step: number;
   total_steps: number;
-  conversation_history: MessageParam[];
+  conversation_history: ConversationMessage[];
   tool_results: Record<string, unknown>[];
   final_response: string | null;
   error_message: string | null;

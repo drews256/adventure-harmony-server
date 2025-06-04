@@ -31,11 +31,11 @@ bookingAgent
 
 ### Integration Points
 
-1. **Agent Selection** (`src/mastra/index.ts`):
+1. **Agent Selection**:
    - Booking keywords trigger the booking agent
    - Keywords: book, booking, reserve, reservation, tour, activity, rental, ticket
 
-2. **MCP Server Connection** (`src/mastra/tools/bookingTools.ts`):
+2. **MCP Server Connection**:
    - Each tool creates its own MCP client connection
    - Uses patched StreamableHTTP transport for reliability
    - Connects to configured MCP_SERVER_URL

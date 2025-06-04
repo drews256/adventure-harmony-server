@@ -1618,13 +1618,6 @@ class A2AWorker:
                         if sent_count > 0:
                             logger.info(f"Sent {sent_count} morning updates")
                 
-                # Get pending message
-                message = await self.get_pending_message()
-                
-                if message:
-                    logger.info(f"Processing message {message['id']} with A2A protocol")
-                    await self.process_message(message)
-                
                 # Wait before next poll
                 await asyncio.sleep(POLL_INTERVAL)
                 

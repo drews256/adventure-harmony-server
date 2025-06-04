@@ -395,8 +395,11 @@ export class CalendarTool {
         return null;
       }
       
-      // Parse events
-      const events = data.events;
+      // Parse events from ical_content if available
+      let events: CalendarEvent[] = [];
+      if (data.ical_content) {
+        events = this.parseICalContent(data.ical_content);
+      }
       
       return {
         title: data.title || 'Calendar',
