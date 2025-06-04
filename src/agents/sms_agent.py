@@ -12,35 +12,36 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 import agno
-from agno.tools import Tool, ToolResult
+from agno.agent import Agent
 from mcp import ClientSession, StdioServerParameters
 from supabase import Client as SupabaseClient
 import httpx
 
-class MCPTool(Tool):
+class MCPTool:
     """Wrapper for MCP tools to work with Agno"""
     
     def __init__(self, name: str, description: str, mcp_client: ClientSession):
-        super().__init__(name=name, description=description)
+        self.name = name
+        self.description = description
         self.mcp_client = mcp_client
         self._mcp_tool_name = name
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> Dict[str, Any]:
         """Execute the MCP tool"""
         try:
             # Call the MCP tool
             result = await self.mcp_client.call_tool(self._mcp_tool_name, kwargs)
             
             # Return success result
-            return ToolResult(
-                success=True,
-                data=result.content if hasattr(result, 'content') else str(result)
-            )
+            return {
+                "success": True,
+                "data": result.content if hasattr(result, 'content') else str(result)
+            }
         except Exception as e:
-            return ToolResult(
-                success=False,
-                error=str(e)
-            )
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
 
 class SMSAgent:
@@ -62,7 +63,7 @@ class SMSAgent:
         tools = await self._get_mcp_tools()
         
         # Create Agno agent
-        self.agent = agno.Agent(
+        self.agent = Agent(
             name="SMSAgent",
             instructions="""You are a helpful SMS assistant for Adventure Harmony Planner.
             You help users with:
