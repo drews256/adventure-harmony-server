@@ -11,7 +11,7 @@ import asyncio
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from agno import Agent, Agno
+import agno
 from agno.models import ChatModel
 from agno.tools import Tool, ToolResult
 from mcp import ClientSession, StdioServerParameters
@@ -50,7 +50,7 @@ class SMSAgent:
     def __init__(self, supabase_client: SupabaseClient, mcp_server_url: str):
         self.supabase = supabase_client
         self.mcp_server_url = mcp_server_url
-        self.agno = Agno()
+        self.agno = agno.Agno()
         self.mcp_client = None
         self.agent = None
         
@@ -63,7 +63,7 @@ class SMSAgent:
         tools = await self._get_mcp_tools()
         
         # Create Agno agent
-        self.agent = Agent(
+        self.agent = agno.Agent(
             name="SMSAgent",
             instructions="""You are a helpful SMS assistant for Adventure Harmony Planner.
             You help users with:
