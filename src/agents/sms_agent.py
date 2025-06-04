@@ -12,7 +12,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 import agno
-from agno.models import ChatModel
+from agno import Agent
 from agno.tools import Tool, ToolResult
 from mcp import ClientSession, StdioServerParameters
 from supabase import Client as SupabaseClient
@@ -74,7 +74,7 @@ class SMSAgent:
             
             Always be concise and friendly. Remember that responses will be sent via SMS,
             so keep them brief and to the point.""",
-            model=ChatModel.CLAUDE_3_5_SONNET,
+            model="claude-3-5-sonnet-20241022",
             tools=tools
         )
         
