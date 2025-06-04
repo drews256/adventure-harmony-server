@@ -244,7 +244,8 @@ class MCPClient:
                 logger.error("❌ Not connected - cannot call tool")
                 return {"error": "No active MCP connection"}
                 
-            logger.info(f"🔧 Calling tool: {tool_name} with args: {arguments}")
+            logger.info(f"🔧 Calling tool: {tool_name}")
+            logger.info(f"   Tool arguments: {json.dumps(arguments, indent=2)}")
             
             # Send tools/call request
             tool_request = {
@@ -279,7 +280,9 @@ class MCPClient:
                 else:
                     return {"result": result}
             elif tool_result and 'error' in tool_result:
-                logger.error(f"❌ Tool call failed with error: {tool_result['error']}")
+                logger.error(f"❌ Tool call failed for tool '{tool_name}'")
+                logger.error(f"   Tool parameters: {json.dumps(arguments, indent=2)}")
+                logger.error(f"   Error response: {json.dumps(tool_result['error'], indent=2)}")
                 return {"error": str(tool_result['error'])}
             else:
                 logger.error(f"❌ Tool call returned unexpected response: {tool_result}")
@@ -288,6 +291,8 @@ class MCPClient:
         except Exception as e:
             logger.error(f"💥 Error calling MCP tool {tool_name}: {e}")
             logger.error(f"🔍 Exception type: {type(e).__name__}")
+            logger.error(f"🔍 Tool name: {tool_name}")
+            logger.error(f"🔍 Tool arguments: {json.dumps(arguments, indent=2)}")
             import traceback
             logger.error(f"🔍 Full traceback: {traceback.format_exc()}")
             return {"error": str(e)}
