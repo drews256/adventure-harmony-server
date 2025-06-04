@@ -798,6 +798,31 @@ class A2AMessageProcessor:
                     "input_schema": tool.input_schema
                 })
             
+            # Log tools token usage
+            tools_json = json.dumps(claude_tools)
+            tools_char_count = len(tools_json)
+            tools_token_estimate = tools_char_count // 4  # Rough estimate: 4 chars per token
+            
+            logger.info("=" * 60)
+            logger.info("🔧 TOOLS TOKEN USAGE:")
+            logger.info(f"  - Total tools: {len(claude_tools)}")
+            logger.info(f"  - Local tools: {len(self.local_tools)}")
+            logger.info(f"  - MCP tools: {len(self.mcp_tools)}")
+            logger.info(f"  - Tools JSON size: {tools_char_count:,} characters")
+            logger.info(f"  - Estimated tokens: ~{tools_token_estimate:,} tokens")
+            
+            # Log individual tool sizes
+            for tool in claude_tools[:5]:  # Show first 5 tools
+                tool_json = json.dumps(tool)
+                tool_chars = len(tool_json)
+                tool_tokens = tool_chars // 4
+                logger.info(f"  - {tool['name']}: {tool_chars:,} chars (~{tool_tokens} tokens)")
+            
+            if len(claude_tools) > 5:
+                logger.info(f"  - ... and {len(claude_tools) - 5} more tools")
+            
+            logger.info("=" * 60)
+            
             # Build system content with cache control for the system parameter
             system_content = [
                 {
@@ -997,18 +1022,11 @@ Here's my current message: {content}"""
                 messages.append({"role": "assistant", "content": assistant_content})
                 
                 # Add tool results with cache control on the first result
+                # Add tool results (without cache control to avoid exceeding 4 block limit)
                 if tool_results:
-                    # Add cache control to the first tool result
-                    cached_tool_results = []
-                    for i, tool_result in enumerate(tool_results):
-                        cached_result = tool_result.copy()
-                        if i == 0:
-                            cached_result["cache_control"] = {"type": "ephemeral"}
-                        cached_tool_results.append(cached_result)
-                    messages.append({"role": "user", "content": cached_tool_results})
+                    messages.append({"role": "user", "content": tool_results})
                 else:
                     messages.append({"role": "user", "content": tool_results})
-                
                 # Check if we've hit the iteration limit
                 if tool_iterations >= MAX_TOOL_ITERATIONS:
                     logger.warning(f"⚠️ Reached maximum tool iterations ({MAX_TOOL_ITERATIONS}). Stopping tool execution.")
