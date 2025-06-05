@@ -135,25 +135,57 @@ class MCPStreamableClient:
             logger.error(f"Request failed with status {response.status_code}: {response.text}")
             raise Exception(f"Request failed with status {response.status_code}")
         
-        # Parse JSON response
-        try:
-            response_data = response.json()
-            logger.debug(f"📥 Received response: {response_data}")
+        # Extract session ID from response headers if present
+        if 'x-mcp-session-id' in response.headers:
+            self.session_id = response.headers['x-mcp-session-id']
+            logger.debug(f"🔑 Session ID from header: {self.session_id}")
+        
+        # Check content type to determine how to parse response
+        content_type = response.headers.get('content-type', '')
+        
+        if 'text/event-stream' in content_type:
+            # Parse SSE response
+            response_text = response.text
+            logger.debug(f"📥 Received SSE response: {response_text[:200]}...")
             
-            # Extract session ID from response headers if present
-            if 'x-mcp-session-id' in response.headers:
-                self.session_id = response.headers['x-mcp-session-id']
-                logger.debug(f"🔑 Session ID from header: {self.session_id}")
+            # Parse SSE format
+            for line in response_text.strip().split('\n'):
+                if line.startswith('data: '):
+                    data_json = line[6:]  # Remove 'data: ' prefix
+                    try:
+                        response_data = json.loads(data_json)
+                        logger.debug(f"📥 Parsed SSE data: {response_data}")
+                        
+                        # Check for error in response
+                        if 'error' in response_data:
+                            raise Exception(f"MCP error: {response_data['error']}")
+                        
+                        # Check if this is our response (matching request ID)
+                        if response_data.get('id') == request_id:
+                            return response_data.get('result', {})
+                        elif 'result' in response_data:
+                            # If no ID match but has result, return it
+                            return response_data['result']
+                            
+                    except json.JSONDecodeError:
+                        continue
             
-            # Check for error in response
-            if 'error' in response_data:
-                raise Exception(f"MCP error: {response_data['error']}")
-            
-            return response_data.get('result', {})
+            raise Exception(f"No valid response found in SSE stream")
+        else:
+            # Parse JSON response
+            try:
+                response_data = response.json()
+                logger.debug(f"📥 Received JSON response: {response_data}")
                 
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse response: {response.text}")
-            raise e
+                # Check for error in response
+                if 'error' in response_data:
+                    raise Exception(f"MCP error: {response_data['error']}")
+                
+                return response_data.get('result', {})
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse response: {response.text}")
+                raise e
     
     async def _send_notification(self, method: str, params: Dict[str, Any] = None):
         """Send notification to MCP server (no response expected)"""
