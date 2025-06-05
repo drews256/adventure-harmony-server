@@ -30,17 +30,25 @@ logger = logging.getLogger(__name__)
 class MCPTool:
     """Wrapper for MCP tools to work with Agno"""
     
-    def __init__(self, name: str, description: str, mcp_client: MCPStreamableClient):
+    def __init__(self, name: str, description: str, mcp_client: MCPStreamableClient, input_schema: Dict[str, Any] = None):
         self.name = name
         self.description = description
         self.mcp_client = mcp_client
         self._mcp_tool_name = name
+        self.input_schema = input_schema or {"type": "object", "properties": {}}
+    
+    async def __call__(self, **kwargs) -> Dict[str, Any]:
+        """Make the tool callable - Agno expects tools to be callable"""
+        return await self.execute(**kwargs)
     
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Execute the MCP tool"""
+        print(f"TOOL EXECUTE CALLED: {self.name} with args: {kwargs}", flush=True)
         try:
             # Call the MCP tool
             result = await self.mcp_client.call_tool(self._mcp_tool_name, kwargs)
+            
+            print(f"TOOL RESULT: {result}", flush=True)
             
             # Extract the result data
             if isinstance(result, dict):
@@ -65,6 +73,7 @@ class MCPTool:
                     "data": str(result)
                 }
         except Exception as e:
+            print(f"TOOL EXECUTE ERROR: {e}", flush=True)
             return {
                 "success": False,
                 "error": str(e)
@@ -141,7 +150,8 @@ class SMSAgent:
             agno_tool = MCPTool(
                 name=tool.name,
                 description=tool.description or f"MCP tool: {tool.name}",
-                mcp_client=self.mcp_client
+                mcp_client=self.mcp_client,
+                input_schema=tool.input_schema
             )
             tools.append(agno_tool)
         
