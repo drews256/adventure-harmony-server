@@ -579,7 +579,7 @@ class SMSTool(A2ALocalTool):
             id=context.get("request_id"),
             result={
                 "type": "sms",
-                "status": "sent",
+                "status": "completed",
                 "message": f"SMS sent to {params.get('to_number', 'unknown')}"
             }
         )
