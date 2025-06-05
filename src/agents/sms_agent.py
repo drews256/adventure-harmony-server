@@ -56,7 +56,6 @@ class SMSAgent:
         self.agent = None
         
     async def initialize(self):
-    async def initialize(self):
         """Initialize the agent with MCP tools"""
         # TODO: Fix MCP client initialization
         # For now, skip MCP and create agent without tools
