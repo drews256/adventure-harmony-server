@@ -61,42 +61,50 @@ class AgnoWorker:
         # Use the deployed MCP server on Heroku
         self.mcp_server_url = os.getenv("MCP_SERVER_URL", "https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com")
         
-        # Agent instance (created on demand)
-        self.agent = None
+        # Agent instances cached by profile_id
+        self.agents = {}
         
         # Morning update manager
         self.morning_update_manager = None
     
-    async def initialize_agent(self):
-        """Initialize the Agno agent"""
-        if not self.agent:
-            logger.info("Initializing Agno SMS agent...")
+    async def initialize_agent(self, profile_id: Optional[str] = None):
+        """Initialize the Agno agent for a specific profile"""
+        # Use a default key for agents without profile
+        cache_key = profile_id or "default"
+        
+        if cache_key not in self.agents:
+            logger.info(f"Initializing Agno SMS agent for profile: {profile_id or 'default'}")
             logger.info(f"MCP Server URL: {self.mcp_server_url}")
             try:
                 # Try to create agent with MCP support
-                self.agent = await create_sms_agent(self.supabase, self.mcp_server_url)
-                logger.info("Agno SMS agent initialized successfully with MCP tools")
+                agent = await create_sms_agent(self.supabase, self.mcp_server_url, profile_id)
+                logger.info(f"Agno SMS agent initialized successfully with MCP tools for profile: {profile_id or 'default'}")
                 
                 # Log available tools if MCP is connected
-                if hasattr(self.agent, 'mcp_client') and self.agent.mcp_client:
-                    logger.info(f"MCP connected with {len(self.agent.mcp_client.tools)} tools available")
-                    for tool in self.agent.mcp_client.tools[:5]:  # Log first 5 tools
+                if hasattr(agent, 'mcp_client') and agent.mcp_client:
+                    logger.info(f"MCP connected with {len(agent.mcp_client.tools)} tools available for profile {profile_id or 'default'}")
+                    for tool in agent.mcp_client.tools[:5]:  # Log first 5 tools
                         logger.info(f"  - {tool.name}: {tool.description}")
-                    if len(self.agent.mcp_client.tools) > 5:
-                        logger.info(f"  ... and {len(self.agent.mcp_client.tools) - 5} more tools")
+                    if len(agent.mcp_client.tools) > 5:
+                        logger.info(f"  ... and {len(agent.mcp_client.tools) - 5} more tools")
+                        
+                self.agents[cache_key] = agent
                         
             except Exception as e:
                 logger.warning(f"Failed to initialize MCP-enabled agent: {e}")
                 logger.info("Falling back to simple agent without MCP tools")
-                self.agent = await create_simple_sms_agent(self.supabase, self.mcp_server_url)
-                logger.info("Simple SMS agent initialized successfully")
+                agent = await create_simple_sms_agent(self.supabase, self.mcp_server_url)
+                logger.info(f"Simple SMS agent initialized successfully for profile: {profile_id or 'default'}")
+                self.agents[cache_key] = agent
             
-            # Initialize morning update manager if available
+            # Initialize morning update manager if available (only once)
             if MORNING_UPDATE_AVAILABLE and not self.morning_update_manager:
-                # Get MCP client from the agent
-                if hasattr(self.agent, 'mcp_client'):
-                    self.morning_update_manager = MorningUpdateManager(self.supabase, self.agent.mcp_client)
+                # Get MCP client from any agent
+                if hasattr(agent, 'mcp_client'):
+                    self.morning_update_manager = MorningUpdateManager(self.supabase, agent.mcp_client)
                     logger.info("Morning update manager initialized")
+        
+        return self.agents[cache_key]
     
     async def process_pending_jobs(self):
         """Process pending conversation jobs"""
@@ -151,13 +159,13 @@ class AgnoWorker:
             
             message = message_result.data
             
-            # Initialize agent if needed
-            await self.initialize_agent()
+            # Initialize agent for this profile if needed
+            agent = await self.initialize_agent(message.get('profile_id'))
             
             # Process the message with Agno agent
             logger.info(f"Processing message: {message['content'][:50]}...")
             
-            response = await self.agent.process_message(
+            response = await agent.process_message(
                 message=message['content'],
                 conversation_id=message['conversation_id'],
                 phone_number=message['phone_number']
@@ -299,9 +307,9 @@ class AgnoWorker:
                 logger.error(f"Worker error: {e}", exc_info=True)
                 await asyncio.sleep(5)
         
-        # Cleanup
-        if self.agent:
-            await self.agent.cleanup()
+        # Cleanup all agents
+        for agent in self.agents.values():
+            await agent.cleanup()
 
 
 async def main():

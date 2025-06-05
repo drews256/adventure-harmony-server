@@ -47,19 +47,22 @@ class MCPStreamableClient:
         self.server_url = server_url.rstrip('/')
         self.endpoint = f"{self.server_url}/mcp"
         self.session_id = None
+        self.profile_id = None
         self.tools: List[MCPTool] = []
         self.connected = False
         self._request_id_counter = 0
         self._http_client = None
         
-    async def connect(self, retry_count: int = 3, retry_delay: int = 2):
+    async def connect(self, retry_count: int = 3, retry_delay: int = 2, profile_id: Optional[str] = None):
         """
         Connect to MCP server and initialize session
         
         Args:
             retry_count: Number of connection attempts
             retry_delay: Delay in seconds between retries
+            profile_id: Optional profile ID for filtering tools
         """
+        self.profile_id = profile_id
         for attempt in range(retry_count):
             try:
                 logger.info(f"🔗 Connecting to MCP server at {self.endpoint} (attempt {attempt + 1}/{retry_count})")
@@ -78,7 +81,7 @@ class MCPStreamableClient:
                 await self._send_initialized()
                 
                 # Get available tools
-                await self.refresh_tools()
+                await self.refresh_tools(profile_id)
                 
                 self.connected = True
                 logger.info("✅ Successfully connected to MCP server via Streamable HTTP")
@@ -240,12 +243,18 @@ class MCPStreamableClient:
         await self._send_notification("initialized")
         logger.debug("✅ Sent initialized notification")
     
-    async def refresh_tools(self):
+    async def refresh_tools(self, profile_id: Optional[str] = None):
         """Get available tools from MCP server"""
         try:
             logger.info("🔧 Fetching tools from MCP server")
             
-            result = await self._send_request("tools/list")
+            # Include profile_id in params if provided
+            params = {}
+            if profile_id:
+                params['profileId'] = profile_id
+                logger.info(f"   Filtering tools for profile: {profile_id}")
+            
+            result = await self._send_request("tools/list", params)
             tools_list = result.get('tools', [])
             
             self.tools = []
@@ -278,6 +287,11 @@ class MCPStreamableClient:
                 raise Exception("Not connected to MCP server")
             
             logger.info(f"🔧 Calling tool: {tool_name}")
+            
+            # Add profileId to arguments if we have one
+            if self.profile_id and 'profileId' not in arguments:
+                arguments['profileId'] = self.profile_id
+                
             logger.debug(f"   Tool arguments: {json.dumps(arguments, indent=2)}")
             
             result = await self._send_request(
@@ -324,7 +338,7 @@ class MCPStreamableClient:
 
 
 # Convenience function to create and connect client
-async def create_mcp_client(server_url: str, retry_count: int = 3, retry_delay: int = 2) -> MCPStreamableClient:
+async def create_mcp_client(server_url: str, retry_count: int = 3, retry_delay: int = 2, profile_id: Optional[str] = None) -> MCPStreamableClient:
     """
     Create and connect MCP Streamable HTTP client
     
@@ -332,7 +346,8 @@ async def create_mcp_client(server_url: str, retry_count: int = 3, retry_delay: 
         server_url: Base URL of the MCP server
         retry_count: Number of connection attempts
         retry_delay: Delay in seconds between retries
+        profile_id: Optional profile ID for filtering tools
     """
     client = MCPStreamableClient(server_url)
-    await client.connect(retry_count=retry_count, retry_delay=retry_delay)
+    await client.connect(retry_count=retry_count, retry_delay=retry_delay, profile_id=profile_id)
     return client

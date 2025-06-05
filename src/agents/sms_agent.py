@@ -74,9 +74,10 @@ class MCPTool:
 class SMSAgent:
     """Agent for handling SMS messages using Agno and MCP"""
     
-    def __init__(self, supabase_client: SupabaseClient, mcp_server_url: str):
+    def __init__(self, supabase_client: SupabaseClient, mcp_server_url: str, profile_id: Optional[str] = None):
         self.supabase = supabase_client
         self.mcp_server_url = mcp_server_url
+        self.profile_id = profile_id
         # Agent will be created during initialization
         self.mcp_client: Optional[MCPStreamableClient] = None
         self.agent = None
@@ -117,8 +118,8 @@ class SMSAgent:
             # Default to http if no protocol specified
             server_url = f"http://{self.mcp_server_url}"
         
-        # Create and connect MCP SSE client
-        self.mcp_client = await create_mcp_client(server_url)
+        # Create and connect MCP client with profile_id
+        self.mcp_client = await create_mcp_client(server_url, profile_id=self.profile_id)
     
     async def _get_mcp_tools(self) -> List[MCPTool]:
         """Get available tools from MCP server and wrap them for Agno"""
@@ -196,8 +197,8 @@ class SMSAgent:
 
 
 # Factory function to create agent
-async def create_sms_agent(supabase_client: SupabaseClient, mcp_server_url: str) -> SMSAgent:
+async def create_sms_agent(supabase_client: SupabaseClient, mcp_server_url: str, profile_id: Optional[str] = None) -> SMSAgent:
     """Create and initialize SMS agent"""
-    agent = SMSAgent(supabase_client, mcp_server_url)
+    agent = SMSAgent(supabase_client, mcp_server_url, profile_id)
     await agent.initialize()
     return agent
