@@ -167,8 +167,8 @@ class SMSAgent:
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        # Run the agent (synchronous method)
-        response = self.agent.run(message=message, messages=history, stream=False)
+        # Run the agent (async method since we have async tools)
+        response = await self.agent.arun(message=message, messages=history, stream=False)
         
         # Extract the response text
         if hasattr(response, 'content'):
