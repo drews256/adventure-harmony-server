@@ -3,6 +3,7 @@
 Agno-based Python Worker for SMS message processing
 Uses Agno framework for agent orchestration and MCP for tool execution
 """
+print("WORKER STARTING - python_worker_agno.py", flush=True)
 
 import asyncio
 import json
@@ -100,6 +101,7 @@ class AgnoWorker:
                 self.agents[cache_key] = agent
                         
             except Exception as e:
+                print(f"MCP AGENT FAILED: {e}", flush=True)
                 logger.warning(f"Failed to initialize MCP-enabled agent: {e}")
                 logger.info("Falling back to simple agent without MCP tools")
                 agent = await create_simple_sms_agent(self.supabase, self.mcp_server_url)
@@ -303,8 +305,13 @@ class AgnoWorker:
         """Main worker loop"""
         logger.info(f"Starting Agno worker with MCP URL: {self.mcp_server_url}")
         
+        loop_count = 0
         while True:
             try:
+                loop_count += 1
+                if loop_count % 30 == 1:  # Log every 60 seconds (30 * 2 second sleep)
+                    print(f"Worker alive - loop {loop_count}", flush=True)
+                
                 # Process pending jobs
                 await self.process_pending_jobs()
                 
