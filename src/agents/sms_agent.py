@@ -56,12 +56,18 @@ class SMSAgent:
         self.agent = None
         
     async def initialize(self):
+    async def initialize(self):
         """Initialize the agent with MCP tools"""
-        # Initialize MCP client
-        await self._init_mcp_client()
+        # TODO: Fix MCP client initialization
+        # For now, skip MCP and create agent without tools
         
-        # Get available tools from MCP
-        tools = await self._get_mcp_tools()
+        # # Initialize MCP client
+        # await self._init_mcp_client()
+        
+        # # Get available tools from MCP
+        # tools = await self._get_mcp_tools()
+        
+        tools = []  # No tools for now
         
         # Create Agno agent
         self.agent = Agent(
@@ -77,7 +83,6 @@ class SMSAgent:
             so keep them brief and to the point.""",
             tools=tools
         )
-        
 
     async def _init_mcp_client(self):
         """Initialize MCP client connection"""
