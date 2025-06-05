@@ -36,7 +36,7 @@ load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -81,6 +81,7 @@ class AgnoWorker:
     async def process_pending_jobs(self):
         """Process pending conversation jobs"""
         try:
+            logger.debug("Checking for pending jobs...")
             # Check for morning update jobs first
             if self.morning_update_manager:
                 morning_jobs = self.supabase.table('conversation_jobs').select('*').eq(
@@ -97,7 +98,10 @@ class AgnoWorker:
             ).eq('job_type', 'message').order('created_at').limit(10).execute()
             
             if not result.data:
+                logger.debug("No pending jobs found")
                 return
+            
+            logger.info(f"Found {len(result.data)} pending jobs")
             
             # Process each job
             for job in result.data:
