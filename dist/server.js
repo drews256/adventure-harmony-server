@@ -40,10 +40,30 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const supabase_js_1 = require("@supabase/supabase-js");
-const sdk_1 = require("@anthropic-ai/sdk");
 const index_js_1 = require("@modelcontextprotocol/sdk/client/index.js");
-const sse_js_1 = require("@modelcontextprotocol/sdk/client/sse.js");
+const patched_streamable_http_js_1 = require("./utils/patched-streamable-http.js");
 const calendar_tool_1 = require("./services/calendar-tool");
+// Fun processing messages
+function getProcessingMessage() {
+    const messages = [
+        "🎯 On it! I'll be right back with your answer.",
+        "🚀 Message received! Give me a moment to work my magic.",
+        "🎪 Your request just joined the queue! I'll have something for you soon.",
+        "🌟 Got it! Let me dig into that for you.",
+        "🎨 Processing your request... this won't take long!",
+        "🔮 Looking into that now. Hang tight!",
+        "🎭 Your message is in good hands. Back in a jiffy!",
+        "🎪 Request received! Working on something great for you.",
+        "✨ I'm on the case! Results coming your way shortly.",
+        "🎯 Message received loud and clear! Processing now.",
+        "🌊 Diving into your request. Surface with answers soon!",
+        "🎪 Your adventure is being planned! Details coming up.",
+        "🔍 Investigating your request. Stay tuned!",
+        "🎨 Crafting the perfect response for you...",
+        "🚁 Request airborne! Landing with answers shortly."
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+}
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const port = process.env.PORT || 3000;
@@ -55,9 +75,6 @@ const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = (0, supabase_js_1.createClient)(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 // Initialize calendar tool
 const calendarTool = new calendar_tool_1.CalendarTool(supabase);
-const anthropic = new sdk_1.Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
-});
 let mcpClient = null;
 async function ensureMcpConnection() {
     try {
@@ -65,16 +82,16 @@ async function ensureMcpConnection() {
             const clientId = `mcp-client-cli-${Date.now()}`;
             console.log(`Creating new MCP client: ${clientId}`);
             mcpClient = new index_js_1.Client({ name: clientId, version: "1.0.0" });
-            // Use StreamableHTTP transport instead of SSE for more reliability
-            // Log the transport creation
-            console.log("Creating MCP client transport");
+            // Use StreamableHTTP transport for better reliability and MCP compliance
+            console.log("Creating MCP client transport with StreamableHTTP");
             // Important: Use /mcp endpoint for proper StreamableHTTP transport
-            const transportUrl = new URL("https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com/mcp");
+            // Use localhost for testing the openapi-mcp-server integration
+            const transportUrl = new URL(process.env.MCP_SERVER_URL || "http://localhost:3000/mcp");
             console.log(`Using transport URL: ${transportUrl.toString()}`);
-            const transport = new sse_js_1.SSEClientTransport(transportUrl);
+            const transport = (0, patched_streamable_http_js_1.createPatchedStreamableHTTPTransport)(transportUrl);
             // Log transport details
             console.log(`Transport created: ${transport.constructor.name}`);
-            console.log('Starting new MCP connection with SSE transport');
+            console.log('Starting new MCP connection with StreamableHTTP transport');
             await mcpClient.connect(transport);
             console.log('MCP client connected successfully');
         }
@@ -132,7 +149,7 @@ app.post('/analyze-message', async (req, res) => {
         await supabase.functions.invoke('send-sms', {
             body: {
                 to: phoneNumber,
-                message: "I'm processing your request. I'll get back to you shortly."
+                message: getProcessingMessage()
             }
         });
         res.json({

@@ -36,23 +36,24 @@ except ImportError as e:
 # Load environment variables
 load_dotenv()
 
-# Configure logging with explicit stream handler for Heroku
+# Configure logging
 import sys
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
-    ],
-    force=True
+    ]
 )
 
-# Ensure Python stdout is unbuffered for Heroku
-sys.stdout = sys.stderr
-
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+
+# Suppress noisy loggers
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
+logging.getLogger('hpack').setLevel(logging.WARNING)
+logging.getLogger('agno').setLevel(logging.INFO)
 
 
 class AgnoWorker:
@@ -84,9 +85,7 @@ class AgnoWorker:
         cache_key = profile_id or "default"
         
         if cache_key not in self.agents:
-            print(f"=== INITIALIZING AGENT: profile={profile_id}, cache_key={cache_key}, mcp_url={self.mcp_server_url} ===", flush=True)
             logger.info(f"Initializing Agno SMS agent for profile: {profile_id or 'default'}")
-            logger.info(f"MCP Server URL: {self.mcp_server_url}")
             try:
                 # Try to create agent with MCP support
                 agent = await create_sms_agent(self.supabase, self.mcp_server_url, profile_id)
@@ -173,8 +172,6 @@ class AgnoWorker:
             
             # Log message details
             profile_id = message.get('profile_id')
-            print(f"=== PROCESSING MESSAGE: profile_id={profile_id}, phone={message.get('phone_number')} ===", flush=True)
-            logger.info(f"Message details: id={message.get('id')}, profile_id={profile_id}, phone={message.get('phone_number')}")
             
             # Initialize agent for this profile if needed
             agent = await self.initialize_agent(profile_id)
@@ -307,8 +304,7 @@ class AgnoWorker:
     
     async def run(self):
         """Main worker loop"""
-        print(f"=== WORKER RUN STARTED - MCP URL: {self.mcp_server_url} ===", flush=True)
-        logger.info("Starting Agno worker...")
+        logger.info(f"Starting Agno worker with MCP URL: {self.mcp_server_url}")
         
         while True:
             try:
@@ -332,8 +328,6 @@ class AgnoWorker:
 
 async def main():
     """Main entry point"""
-    print("=== AGNO WORKER STARTING ===", flush=True)
-    logger.info("Starting Agno worker main()")
     worker = AgnoWorker()
     await worker.run()
 
