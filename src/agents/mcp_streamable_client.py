@@ -89,6 +89,7 @@ class MCPStreamableClient:
                 return
                 
             except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                print(f"=== MCP CONNECTION FAILED: {type(e).__name__}: {e} ===", flush=True)
                 logger.warning(f"⚠️  Connection attempt {attempt + 1} failed: {e}")
                 if attempt < retry_count - 1:
                     logger.info(f"⏳ Retrying in {retry_delay} seconds...")
@@ -98,6 +99,7 @@ class MCPStreamableClient:
                     self.connected = False
                     raise ConnectionError(f"Failed to connect to MCP server at {self.server_url} after {retry_count} attempts")
             except Exception as e:
+                print(f"=== MCP UNEXPECTED ERROR: {type(e).__name__}: {e} ===", flush=True)
                 logger.error(f"💥 Unexpected error connecting to MCP: {e}")
                 self.connected = False
                 raise
@@ -247,6 +249,7 @@ class MCPStreamableClient:
     async def refresh_tools(self, profile_id: Optional[str] = None):
         """Get available tools from MCP server"""
         try:
+            print(f"=== MCP REFRESH_TOOLS: profile_id={profile_id} ===", flush=True)
             logger.info("🔧 Fetching tools from MCP server")
             
             # Include profile_id in params if provided
@@ -258,6 +261,7 @@ class MCPStreamableClient:
                 logger.info("   No profile_id provided, fetching all tools")
             
             result = await self._send_request("tools/list", params)
+            print(f"=== MCP TOOLS RESPONSE: got {len(result.get('tools', []))} tools ===", flush=True)
             logger.info(f"📥 Raw tools/list response: {json.dumps(result, indent=2)[:500]}...")
             tools_list = result.get('tools', [])
             
