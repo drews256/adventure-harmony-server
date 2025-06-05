@@ -86,6 +86,7 @@ class AgnoWorker:
         cache_key = profile_id or "default"
         
         if cache_key not in self.agents:
+            print(f"CREATING NEW AGENT FOR CACHE KEY: {cache_key}", flush=True)
             logger.info(f"Initializing Agno SMS agent for profile: {profile_id or 'default'}")
             try:
                 # Try to create agent with MCP support
@@ -94,9 +95,12 @@ class AgnoWorker:
                 
                 # Log available tools if MCP is connected
                 if hasattr(agent, 'mcp_client') and agent.mcp_client:
+                    print(f"AGENT HAS MCP CLIENT WITH {len(agent.mcp_client.tools)} MCP TOOLS", flush=True)
                     logger.info(f"MCP connected with {len(agent.mcp_client.tools)} tools available for profile {profile_id or 'default'}")
                     if len(agent.mcp_client.tools) == 0:
                         logger.warning("⚠️  No tools loaded from MCP server!")
+                else:
+                    print("AGENT HAS NO MCP CLIENT!", flush=True)
                         
                 self.agents[cache_key] = agent
                         
@@ -115,7 +119,17 @@ class AgnoWorker:
                     self.morning_update_manager = MorningUpdateManager(self.supabase, agent.mcp_client)
                     logger.info("Morning update manager initialized")
         
-        return self.agents[cache_key]
+        else:
+            print(f"USING CACHED AGENT FOR KEY: {cache_key}", flush=True)
+            
+        # Check tool status of the agent we're returning
+        agent = self.agents[cache_key]
+        if hasattr(agent, 'agent') and hasattr(agent.agent, 'tools'):
+            print(f"RETURNING AGENT WITH {len(agent.agent.tools)} AGNO TOOLS", flush=True)
+        else:
+            print("RETURNING AGENT WITH NO TOOLS ATTRIBUTE", flush=True)
+            
+        return agent
     
     async def process_pending_jobs(self):
         """Process pending conversation jobs"""

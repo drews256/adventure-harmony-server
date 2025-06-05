@@ -98,6 +98,7 @@ class SMSAgent:
             tools = []
         
         # Create Agno agent
+        print(f"CREATING AGNO AGENT WITH {len(tools)} TOOLS", flush=True)
         self.agent = Agent(
             model=Claude(id="claude-3-5-sonnet-20241022"),
             instructions="""You are a helpful SMS assistant for Adventure Harmony Planner.
@@ -111,6 +112,11 @@ class SMSAgent:
             so keep them brief and to the point.""",
             tools=tools
         )
+        print(f"AGNO AGENT CREATED - VERIFYING TOOLS...", flush=True)
+        if hasattr(self.agent, 'tools'):
+            print(f"AGNO AGENT HAS {len(self.agent.tools)} TOOLS ATTRIBUTE", flush=True)
+        else:
+            print("AGNO AGENT HAS NO TOOLS ATTRIBUTE", flush=True)
         logger.info(f"Agno agent created with {len(tools)} tools")
 
     async def _init_mcp_client(self):
