@@ -94,10 +94,8 @@ class AgnoWorker:
                 # Log available tools if MCP is connected
                 if hasattr(agent, 'mcp_client') and agent.mcp_client:
                     logger.info(f"MCP connected with {len(agent.mcp_client.tools)} tools available for profile {profile_id or 'default'}")
-                    for tool in agent.mcp_client.tools[:5]:  # Log first 5 tools
-                        logger.info(f"  - {tool.name}: {tool.description}")
-                    if len(agent.mcp_client.tools) > 5:
-                        logger.info(f"  ... and {len(agent.mcp_client.tools) - 5} more tools")
+                    if len(agent.mcp_client.tools) == 0:
+                        logger.warning("⚠️  No tools loaded from MCP server!")
                         
                 self.agents[cache_key] = agent
                         
@@ -137,10 +135,9 @@ class AgnoWorker:
             ).eq('job_type', 'message').order('created_at').limit(10).execute()
             
             if not result.data:
-                logger.debug("No pending jobs found")
                 return
             
-            logger.info(f"Found {len(result.data)} pending jobs")
+            logger.info(f"Found {len(result.data)} pending message jobs")
             
             # Process each job
             for job in result.data:
@@ -177,7 +174,7 @@ class AgnoWorker:
             agent = await self.initialize_agent(profile_id)
             
             # Process the message with Agno agent
-            logger.info(f"Processing message: {message['content'][:50]}...")
+            logger.info(f"Processing message from {message.get('phone_number')} with profile {profile_id}: {message['content'][:50]}...")
             
             response = await agent.process_message(
                 message=message['content'],

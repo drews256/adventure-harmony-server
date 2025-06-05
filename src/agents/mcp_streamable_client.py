@@ -91,6 +91,8 @@ class MCPStreamableClient:
                 self.connected = True
                 logger.info("✅ Successfully connected to MCP server via Streamable HTTP")
                 logger.info(f"📊 Connection summary: session_id={self.session_id}, profile_id={self.profile_id}, tools_count={len(self.tools)}")
+                if len(self.tools) == 0:
+                    logger.warning("⚠️  MCP connected but no tools were returned!")
                 return
                 
             except (httpx.ConnectError, httpx.ConnectTimeout) as e:
@@ -281,7 +283,7 @@ class MCPStreamableClient:
                 logger.debug(f"     📋 Schema: {tool.input_schema}")
             
             if len(self.tools) == 0:
-                logger.warning("⚠️  No tools returned from MCP server")
+                logger.warning("⚠️  No tools returned from MCP server - check profile filtering")
                 
         except Exception as e:
             logger.error(f"💥 Error getting tools from MCP: {e}")
