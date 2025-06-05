@@ -234,29 +234,35 @@ class AgnoWorker:
             message_id = message_result.data[0]['id']
             
             # Use Supabase Edge Function to send SMS (like the server does)
-            result = await asyncio.to_thread(
-                self.supabase.functions.invoke,
-                'send-sms',
-                {'body': {
-                    'to': phone_number,
-                    'message': content
-                }}
-            )
-            
-            if result.status_code == 200:
-                # Update message status
+            # Note: The Python SDK returns the response data directly as bytes
+            try:
+                result = await asyncio.to_thread(
+                    self.supabase.functions.invoke,
+                    'send-sms',
+                    {'body': {
+                        'to': phone_number,
+                        'message': content
+                    }}
+                )
+                
+                # The Python SDK returns bytes, we need to decode and check for success
+                # If the function executed successfully, we assume the SMS was sent
+                logger.info(f"SMS function invoked for {phone_number}")
+                
+                # Update message status to sent
                 self.supabase.table('conversation_messages').update({
                     'status': 'sent',
                     'sent_at': datetime.now(timezone.utc).isoformat()
                 }).eq('id', message_id).execute()
                 
                 logger.info(f"SMS sent successfully to {phone_number}")
-            else:
-                logger.error(f"Failed to send SMS: {result.data}")
-                # Still update message status but mark as failed
+                
+            except Exception as sms_error:
+                logger.error(f"Failed to send SMS: {sms_error}")
+                # Update message status to failed
                 self.supabase.table('conversation_messages').update({
                     'status': 'failed',
-                    'error': f"SMS send failed: {result.data}"
+                    'error': f"SMS send failed: {str(sms_error)}"
                 }).eq('id', message_id).execute()
                 
         except Exception as e:
