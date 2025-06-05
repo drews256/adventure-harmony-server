@@ -32,6 +32,7 @@ class MCPTool:
     
     def __init__(self, name: str, description: str, mcp_client: MCPStreamableClient, input_schema: Dict[str, Any] = None):
         self.name = name
+        self.__name__ = name  # Agno expects this attribute
         self.description = description
         self.mcp_client = mcp_client
         self._mcp_tool_name = name
