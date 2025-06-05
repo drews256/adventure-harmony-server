@@ -1,4 +1,4 @@
-import { MCPTool } from './goguide-api';
+import { MCPTool } from './mcp-client';
 
 export interface SMSToolArgs {
   to: string;

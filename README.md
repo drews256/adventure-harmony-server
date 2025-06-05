@@ -1,6 +1,6 @@
-# Adventure Harmony Planner - Message Analysis Server
+# SMS Message Processing Server
 
-A sophisticated SMS-based conversational AI system for managing outdoor activity bookings and outfitter operations. This server processes incoming messages using Claude AI and executes various tools to help outdoor adventure businesses manage their operations through simple text messaging.
+An AI-powered SMS processing server that uses Claude to understand and respond to incoming text messages. The server integrates with various tools and services through the Model Context Protocol (MCP) to provide automated assistance via SMS.
 
 ## Table of Contents
 
@@ -22,12 +22,12 @@ A sophisticated SMS-based conversational AI system for managing outdoor activity
 
 ## Overview
 
-The Message Analysis Server is the core backend for Adventure Harmony Planner, enabling outdoor activity businesses to:
-- Manage bookings and reservations via SMS
-- Display calendars and availability
-- Process dynamic forms
-- Handle customer inquiries with AI assistance
-- Integrate with existing booking systems (OrderLine, GoGuide)
+This SMS Processing Server enables automated text message interactions by:
+- Processing incoming SMS messages with AI-powered understanding
+- Executing tools and integrations via Model Context Protocol (MCP)
+- Managing conversations and message history
+- Generating dynamic forms and calendar displays
+- Integrating with external services and APIs
 
 ## Architecture
 

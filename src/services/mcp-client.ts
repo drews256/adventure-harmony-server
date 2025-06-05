@@ -14,7 +14,7 @@ export interface MCPToolCall {
   tool_result: any[] | null;
 }
 
-export class GoGuideAPIClient {
+export class MCPClient {
   private supabase;
   private mcpClient;
   
@@ -294,109 +294,9 @@ export class GoGuideAPIClient {
     // This should never be reached due to the throw in the loop, but TypeScript needs it
     throw new Error(`Failed to call tool ${tool.name} after ${maxRetries} attempts`);
   }
-  
-  /**
-   * Search for listings with simplified parameters
-   */
-  async searchListings(params: {
-    location?: string;
-    dateFrom?: string;
-    dateTo?: string;
-    guests?: number;
-    profileId?: string;
-    [key: string]: any;
-  }): Promise<any> {
-    const { profileId, ...otherParams } = params;
-    return this.callTool('Listings_Search', {
-      request: {
-        location: params.location,
-        dateFrom: params.dateFrom,
-        dateTo: params.dateTo,
-        guests: params.guests,
-        ...otherParams
-      }
-    }, profileId);
-  }
-  
-  /**
-   * Check availability for a specific listing
-   */
-  async checkAvailability(listingId: string, dateFrom: string, dateTo: string, profileId?: string): Promise<any> {
-    return this.callTool('Availability_SearchListingScheduleAvailability', {
-      request: {
-        listingId,
-        dateFrom,
-        dateTo
-      }
-    }, profileId);
-  }
-  
-  /**
-   * Get customer details
-   */
-  async getCustomer(customerId: string, profileId?: string): Promise<any> {
-    return this.callTool('Customers_GetById', {
-      customerId
-    }, profileId);
-  }
-  
-  /**
-   * Search for customers
-   */
-  async searchCustomers(query: string, profileId?: string): Promise<any> {
-    return this.callTool('Customers_Search', {
-      request: {
-        query
-      }
-    }, profileId);
-  }
-  
-  /**
-   * Get order details
-   */
-  async getOrder(orderId: string, profileId?: string): Promise<any> {
-    return this.callTool('Orders_GetById', {
-      orderId
-    }, profileId);
-  }
-  
-  /**
-   * Search for orders
-   */
-  async searchOrders(params: {
-    customerId?: string;
-    status?: string;
-    dateFrom?: string;
-    dateTo?: string;
-    profileId?: string;
-    [key: string]: any;
-  }): Promise<any> {
-    const { profileId, ...requestParams } = params;
-    return this.callTool('Orders_Search', {
-      request: requestParams
-    }, profileId);
-  }
-  
-  /**
-   * Get resource availability
-   */
-  async getResourceAvailability(
-    resourceId: string, 
-    dateFrom: string, 
-    dateTo: string,
-    profileId?: string
-  ): Promise<any> {
-    return this.callTool('Availability_SearchResourcesAvailability', {
-      request: {
-        resourceIds: [resourceId],
-        dateFrom,
-        dateTo
-      }
-    }, profileId);
-  }
 }
 
 // Export client factory function
-export function createGoGuideClient(mcpClient: any, supabase: any): GoGuideAPIClient {
-  return new GoGuideAPIClient(mcpClient, supabase);
+export function createMCPClient(mcpClient: any, supabase: any): MCPClient {
+  return new MCPClient(mcpClient, supabase);
 }

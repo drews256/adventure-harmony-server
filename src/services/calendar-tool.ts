@@ -1,6 +1,6 @@
 import { CalendarRenderer } from './calendar-renderer';
 import { createClient } from '@supabase/supabase-js';
-import { MCPTool } from './goguide-api';
+import { MCPTool } from './mcp-client';
 import { StandardizedEvent } from './event-formatter';
 
 export interface CalendarEvent {

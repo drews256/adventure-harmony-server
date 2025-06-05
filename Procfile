@@ -1,2 +1,2 @@
 web: npm start
-worker: python -u python_worker_agno.py
+worker: python python_worker_agno.py

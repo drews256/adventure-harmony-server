@@ -2,12 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { createPatchedStreamableHTTPTransport } from './utils/patched-streamable-http.js';
-
 // Import new service modules
-import { createGoGuideClient } from './services/goguide-api';
-import { withRetry } from './utils/retry';
+import { createMCPClient } from './services/mcp-client';
 import { CalendarTool } from './services/calendar-tool';
 
 // Fun processing messages
@@ -51,48 +47,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 // Initialize calendar tool
 const calendarTool = new CalendarTool(supabase);
-
-
-let mcpClient: Client | null = null;
-
-async function ensureMcpConnection() {
-  try {
-    if (!mcpClient) {
-      const clientId = `mcp-client-cli-${Date.now()}`;
-      console.log(`Creating new MCP client: ${clientId}`);
-      
-      mcpClient = new Client({ name: clientId, version: "1.0.0" });
-      
-      // Use StreamableHTTP transport for better reliability and MCP compliance
-      console.log("Creating MCP client transport with StreamableHTTP");
-      
-      // Important: Use /mcp endpoint for proper StreamableHTTP transport
-      // Use localhost for testing the openapi-mcp-server integration
-      const transportUrl = new URL(process.env.MCP_SERVER_URL || "http://localhost:3000/mcp");
-      console.log(`Using transport URL: ${transportUrl.toString()}`);
-      
-      const transport = createPatchedStreamableHTTPTransport(transportUrl);
-      
-      // Log transport details
-      console.log(`Transport created: ${transport.constructor.name}`);
-      
-      console.log('Starting new MCP connection with StreamableHTTP transport');
-      
-      await mcpClient.connect(transport);
-      console.log('MCP client connected successfully');
-    }
-    
-    return mcpClient;
-  } catch (error) {
-    console.error('Error connecting to MCP server:', error);
-    
-    // Reset the client if there was an error
-    mcpClient = null;
-    
-    // Throw the error to be handled by the caller
-    throw new Error(`Failed to connect to MCP server: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
 
 // Middleware
 app.use(cors());
@@ -156,48 +110,6 @@ app.post('/analyze-message', async (req, res) => {
 
   } catch (error) {
     console.error('Error creating conversation message:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Internal server error'
-    });
-  }
-});
-
-// Process message endpoint (called by database trigger)
-app.post('/process-message', async (req, res) => {
-  try {
-    const { message_id, profile_id, phone_number, content, direction, parent_message_id } = req.body;
-    
-    if (!message_id || !profile_id || !phone_number || !content) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    // Create a new message with pending status for the worker to process
-    const { error: insertError } = await supabase
-      .from('conversation_messages')
-      .insert({
-        id: message_id,  // Use the same ID that was sent
-        profile_id,
-        phone_number,
-        direction,
-        content,
-        parent_message_id,
-        status: 'pending'  // This is what the worker looks for
-      });
-
-    if (insertError) {
-      console.error('Error creating pending message:', insertError);
-      return res.status(500).json({ error: 'Failed to create pending message' });
-    }
-
-    // Quickly acknowledge the request
-    res.json({ 
-      success: true, 
-      message: 'Message queued for processing',
-      message_id 
-    });
-    
-  } catch (error) {
-    console.error('Error creating pending message:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Internal server error'
     });

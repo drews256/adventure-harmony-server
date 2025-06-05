@@ -21,7 +21,7 @@ from supabase import create_client, Client
 agents_path = os.path.join(os.path.dirname(__file__), 'src', 'agents')
 sys.path.append(agents_path)
 
-from sms_agent import create_sms_agent
+from sms_agent_functional import create_sms_agent
 # Fallback to simple agent if MCP is not available
 from sms_agent_simple import SimpleSMSAgent, create_sms_agent as create_simple_sms_agent
 
