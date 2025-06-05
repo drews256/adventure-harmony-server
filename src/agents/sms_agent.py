@@ -13,6 +13,7 @@ from datetime import datetime
 
 import agno
 from agno.agent import Agent
+from agno.models.anthropic import Claude
 from mcp import ClientSession, StdioServerParameters
 from supabase import Client as SupabaseClient
 import httpx
@@ -50,7 +51,7 @@ class SMSAgent:
     def __init__(self, supabase_client: SupabaseClient, mcp_server_url: str):
         self.supabase = supabase_client
         self.mcp_server_url = mcp_server_url
-        self.agno = agno.Agno()
+        # Agent will be created during initialization
         self.mcp_client = None
         self.agent = None
         
@@ -64,7 +65,7 @@ class SMSAgent:
         
         # Create Agno agent
         self.agent = Agent(
-            name="SMSAgent",
+            model=Claude(id="claude-3-5-sonnet-20241022"),
             instructions="""You are a helpful SMS assistant for Adventure Harmony Planner.
             You help users with:
             - Booking tours, activities, and rentals
@@ -74,13 +75,10 @@ class SMSAgent:
             
             Always be concise and friendly. Remember that responses will be sent via SMS,
             so keep them brief and to the point.""",
-            model="claude-3-5-sonnet-20241022",
             tools=tools
         )
         
-        # Register the agent with Agno
-        self.agno.register_agent(self.agent)
-    
+
     async def _init_mcp_client(self):
         """Initialize MCP client connection"""
         # Parse MCP server URL to get host and port
@@ -132,16 +130,14 @@ class SMSAgent:
         }
         
         # Run agent with Agno
-        response = await self.agno.run(
-            agent=self.agent,
-            messages=[
-                {"role": msg["role"], "content": msg["content"]} 
-                for msg in history
-            ] + [{"role": "user", "content": message}],
-            session_data=session_data,
-            stream=False
-        )
+        # Prepare messages
+        messages = [
+            {"role": msg["role"], "content": msg["content"]} 
+            for msg in history
+        ] + [{"role": "user", "content": message}]
         
+        # Run the agent
+        response = await self.agent.run(messages, stream=False)
         # Extract the response text
         if hasattr(response, 'content'):
             return response.content
