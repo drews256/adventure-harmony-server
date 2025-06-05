@@ -159,6 +159,9 @@ class AgnoWorker:
             
             message = message_result.data
             
+            # Log message details
+            logger.info(f"Message details: id={message.get('id')}, profile_id={message.get('profile_id')}, phone={message.get('phone_number')}")
+            
             # Initialize agent for this profile if needed
             agent = await self.initialize_agent(message.get('profile_id'))
             

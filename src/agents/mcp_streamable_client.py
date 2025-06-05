@@ -85,6 +85,7 @@ class MCPStreamableClient:
                 
                 self.connected = True
                 logger.info("✅ Successfully connected to MCP server via Streamable HTTP")
+                logger.info(f"📊 Connection summary: session_id={self.session_id}, profile_id={self.profile_id}, tools_count={len(self.tools)}")
                 return
                 
             except (httpx.ConnectError, httpx.ConnectTimeout) as e:
@@ -253,8 +254,11 @@ class MCPStreamableClient:
             if profile_id:
                 params['profileId'] = profile_id
                 logger.info(f"   Filtering tools for profile: {profile_id}")
+            else:
+                logger.info("   No profile_id provided, fetching all tools")
             
             result = await self._send_request("tools/list", params)
+            logger.info(f"📥 Raw tools/list response: {json.dumps(result, indent=2)[:500]}...")
             tools_list = result.get('tools', [])
             
             self.tools = []

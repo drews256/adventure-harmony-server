@@ -95,6 +95,7 @@ class SMSAgent:
             tools = []
         
         # Create Agno agent
+        logger.info(f"Creating Agno agent with {len(tools)} tools")
         self.agent = Agent(
             model=Claude(id="claude-3-5-sonnet-20241022"),
             instructions="""You are a helpful SMS assistant for Adventure Harmony Planner.
@@ -108,6 +109,7 @@ class SMSAgent:
             so keep them brief and to the point.""",
             tools=tools
         )
+        logger.info(f"Agno agent created successfully with tools: {[t.name for t in tools]}")
 
     async def _init_mcp_client(self):
         """Initialize MCP client connection"""
@@ -125,8 +127,10 @@ class SMSAgent:
         """Get available tools from MCP server and wrap them for Agno"""
         tools = []
         
+        logger.info(f"Converting {len(self.mcp_client.tools)} MCP tools to Agno tools")
+        
         # Tools are already loaded in mcp_client.tools
-        for tool in self.mcp_client.tools:
+        for i, tool in enumerate(self.mcp_client.tools):
             # Create Agno-compatible tool wrapper
             agno_tool = MCPTool(
                 name=tool.name,
@@ -134,11 +138,16 @@ class SMSAgent:
                 mcp_client=self.mcp_client
             )
             tools.append(agno_tool)
+            logger.debug(f"  Tool {i+1}: {tool.name}")
         
+        logger.info(f"Created {len(tools)} Agno-compatible tools")
         return tools
     
     async def process_message(self, message: str, conversation_id: str, phone_number: str) -> str:
         """Process an incoming SMS message and return response"""
+        
+        logger.info(f"Processing message for conversation {conversation_id}, phone {phone_number}")
+        logger.info(f"Agent has {len(self.agent.tools) if hasattr(self.agent, 'tools') else 0} tools available")
         
         # Get conversation history
         history = await self._get_conversation_history(conversation_id)
@@ -150,8 +159,13 @@ class SMSAgent:
             "timestamp": datetime.utcnow().isoformat()
         }
         
+        logger.info(f"Running agent with message: {message[:50]}...")
+        
         # Run the agent (synchronous method)
         response = self.agent.run(message=message, messages=history, stream=False)
+        
+        logger.info(f"Agent completed processing")
+        
         # Extract the response text
         if hasattr(response, 'content'):
             return response.content
