@@ -22,11 +22,9 @@ from supabase import Client as SupabaseClient
 try:
     # Try relative import first (for when imported as package)
     from .mcp_streamable_client import MCPStreamableClient, create_mcp_client
-    from .agno_tool_wrapper import create_agno_tool
 except ImportError:
     # Fall back to absolute import (for when imported directly)
     from mcp_streamable_client import MCPStreamableClient, create_mcp_client
-    from agno_tool_wrapper import create_agno_tool
 
 logger = logging.getLogger(__name__)
 
