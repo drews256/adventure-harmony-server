@@ -149,7 +149,8 @@ class AgnoWorker:
             await self._send_sms_response(
                 phone_number=message['phone_number'],
                 content=response,
-                conversation_id=message['conversation_id']
+                conversation_id=message['conversation_id'],
+                profile_id=message['profile_id']
             )
             
             # Update job status to completed
@@ -205,16 +206,16 @@ class AgnoWorker:
                 'error': str(e)
             }).eq('id', job_id).execute()
     
-    async def _send_sms_response(self, phone_number: str, content: str, conversation_id: str):
+    async def _send_sms_response(self, phone_number: str, content: str, conversation_id: str, profile_id: str):
         """Send SMS response and store in database"""
         try:
             # Store the outgoing message
             message_result = self.supabase.table('conversation_messages').insert({
+                'profile_id': profile_id,
                 'conversation_id': conversation_id,
                 'phone_number': phone_number,
                 'content': content,
                 'direction': 'outgoing',
-                'role': 'assistant',
                 'status': 'pending'
             }).execute()
             
