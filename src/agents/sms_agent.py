@@ -133,18 +133,8 @@ class SMSAgent:
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        # Prepare messages
-        messages = []
-        
-        # Add history if available
-        for msg in history:
-            if msg.get('content'):  # Only add if content exists
-                messages.append({"role": msg["role"], "content": msg["content"]})
-        
-        # Add current message
-        messages.append({"role": "user", "content": message})
-        # Run the agent
-        response = await self.agent.run(messages, stream=False)
+        # Run the agent (synchronous method)
+        response = self.agent.run(message=message, messages=history, stream=False)
         # Extract the response text
         if hasattr(response, 'content'):
             return response.content
