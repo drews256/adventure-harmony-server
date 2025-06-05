@@ -260,9 +260,9 @@ class AgnoWorker:
                 # If the function executed successfully, we assume the SMS was sent
                 logger.info(f"SMS function invoked for {phone_number}")
                 
-                # Update message status to sent
+                # Update message status to completed (sent successfully)
                 self.supabase.table('conversation_messages').update({
-                    'status': 'sent',
+                    'status': 'completed',
                     'sent_at': datetime.now(timezone.utc).isoformat()
                 }).eq('id', message_id).execute()
                 

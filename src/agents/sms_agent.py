@@ -17,20 +17,20 @@ from agno.agent import Agent
 from agno.models.anthropic import Claude
 from supabase import Client as SupabaseClient
 
-# Import our SSE-based MCP client
+# Import our Streamable HTTP-based MCP client
 try:
     # Try relative import first (for when imported as package)
-    from .mcp_sse_client import MCPSSEClient, create_mcp_client
+    from .mcp_streamable_client import MCPStreamableClient, create_mcp_client
 except ImportError:
     # Fall back to absolute import (for when imported directly)
-    from mcp_sse_client import MCPSSEClient, create_mcp_client
+    from mcp_streamable_client import MCPStreamableClient, create_mcp_client
 
 logger = logging.getLogger(__name__)
 
 class MCPTool:
     """Wrapper for MCP tools to work with Agno"""
     
-    def __init__(self, name: str, description: str, mcp_client: MCPSSEClient):
+    def __init__(self, name: str, description: str, mcp_client: MCPStreamableClient):
         self.name = name
         self.description = description
         self.mcp_client = mcp_client
@@ -78,7 +78,7 @@ class SMSAgent:
         self.supabase = supabase_client
         self.mcp_server_url = mcp_server_url
         # Agent will be created during initialization
-        self.mcp_client: Optional[MCPSSEClient] = None
+        self.mcp_client: Optional[MCPStreamableClient] = None
         self.agent = None
         
     async def initialize(self):
