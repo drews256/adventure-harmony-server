@@ -18,7 +18,12 @@ from agno.models.anthropic import Claude
 from supabase import Client as SupabaseClient
 
 # Import our SSE-based MCP client
-from .mcp_sse_client import MCPSSEClient, create_mcp_client
+try:
+    # Try relative import first (for when imported as package)
+    from .mcp_sse_client import MCPSSEClient, create_mcp_client
+except ImportError:
+    # Fall back to absolute import (for when imported directly)
+    from mcp_sse_client import MCPSSEClient, create_mcp_client
 
 logger = logging.getLogger(__name__)
 
