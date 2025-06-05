@@ -63,8 +63,6 @@ class AgnoWorker:
         
         # Morning update manager
         self.morning_update_manager = None
-        if MORNING_UPDATE_AVAILABLE:
-            self.morning_update_manager = MorningUpdateManager(self.supabase)
     
     async def initialize_agent(self):
         """Initialize the Agno agent"""
@@ -72,6 +70,13 @@ class AgnoWorker:
             logger.info("Initializing Agno SMS agent...")
             self.agent = await create_sms_agent(self.supabase, self.mcp_server_url)
             logger.info("Agno SMS agent initialized successfully")
+            
+            # Initialize morning update manager if available
+            if MORNING_UPDATE_AVAILABLE and not self.morning_update_manager:
+                # Get MCP client from the agent
+                if hasattr(self.agent, 'mcp_client'):
+                    self.morning_update_manager = MorningUpdateManager(self.supabase, self.agent.mcp_client)
+                    logger.info("Morning update manager initialized")
     
     async def process_pending_jobs(self):
         """Process pending conversation jobs"""
