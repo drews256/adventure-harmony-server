@@ -66,11 +66,8 @@ class MCPStreamableClient:
                 logger.debug(f"Full server URL: {self.server_url}, Endpoint: {self.endpoint}")
                 
                 # Create HTTP client with proper headers and timeout
+                # Don't set Accept header here, we'll set it per request
                 self._http_client = httpx.AsyncClient(
-                    headers={
-                        'Accept': 'application/json, text/event-stream',
-                        'Cache-Control': 'no-cache'
-                    },
                     timeout=httpx.Timeout(30.0, connect=5.0)
                 )
                 
@@ -120,7 +117,7 @@ class MCPStreamableClient:
         # Add session ID if we have one
         headers = {
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Accept': 'application/json,text/event-stream'
         }
         if self.session_id:
             headers['x-mcp-session-id'] = self.session_id
@@ -168,7 +165,7 @@ class MCPStreamableClient:
         
         headers = {
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Accept': 'application/json,text/event-stream'
         }
         if self.session_id:
             headers['x-mcp-session-id'] = self.session_id
