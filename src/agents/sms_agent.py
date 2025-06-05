@@ -133,13 +133,16 @@ class SMSAgent:
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        # Run agent with Agno
         # Prepare messages
-        messages = [
-            {"role": msg["role"], "content": msg["content"]} 
-            for msg in history
-        ] + [{"role": "user", "content": message}]
+        messages = []
         
+        # Add history if available
+        for msg in history:
+            if msg.get('content'):  # Only add if content exists
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        
+        # Add current message
+        messages.append({"role": "user", "content": message})
         # Run the agent
         response = await self.agent.run(messages, stream=False)
         # Extract the response text
@@ -153,7 +156,7 @@ class SMSAgent:
         try:
             # Query recent messages for this conversation
             result = self.supabase.table('conversation_messages').select(
-                'content,direction,role'
+                'content,direction'
             ).eq(
                 'conversation_id', conversation_id
             ).order(
