@@ -22,14 +22,16 @@ from supabase import Client as SupabaseClient
 try:
     # Try relative import first (for when imported as package)
     from .mcp_streamable_client import MCPStreamableClient, create_mcp_client
+    from .agno_tool_wrapper import create_agno_tool
 except ImportError:
     # Fall back to absolute import (for when imported directly)
     from mcp_streamable_client import MCPStreamableClient, create_mcp_client
+    from agno_tool_wrapper import create_agno_tool
 
 logger = logging.getLogger(__name__)
 
 
-def create_mcp_tool_function(tool_name: str, tool_description: str, mcp_client: MCPStreamableClient):
+def create_mcp_tool_function(tool_name: str, tool_description: str, tool_schema: Dict[str, Any], mcp_client: MCPStreamableClient):
     """Create a function that calls an MCP tool"""
     
     async def mcp_tool_executor(**kwargs) -> Dict[str, Any]:
@@ -73,6 +75,16 @@ def create_mcp_tool_function(tool_name: str, tool_description: str, mcp_client: 
     # Set function metadata for Agno
     mcp_tool_executor.__name__ = tool_name
     mcp_tool_executor.__doc__ = tool_description
+    
+    # Attach schema for Agno - convert MCP schema to Agno format
+    # Agno expects the schema to be attached as __agno_schema__
+    if tool_schema and isinstance(tool_schema, dict):
+        # Ensure the schema is in the correct format
+        # If it has 'properties', wrap it properly
+        if 'properties' in tool_schema and 'type' not in tool_schema:
+            tool_schema['type'] = 'object'
+        
+        mcp_tool_executor.__agno_schema__ = tool_schema
     
     return mcp_tool_executor
 
@@ -143,12 +155,27 @@ class SMSAgent:
         
         # Tools are already loaded in mcp_client.tools
         for tool in self.mcp_client.tools:
+            # Log tool details for debugging
+            print(f"MCP TOOL: {tool.name}, has input_schema: {hasattr(tool, 'input_schema')}", flush=True)
+            if hasattr(tool, 'input_schema'):
+                print(f"MCP TOOL SCHEMA: {json.dumps(tool.input_schema, indent=2)}", flush=True)
+            
             # Create a function for this tool
-            tool_function = create_mcp_tool_function(
+            base_function = create_mcp_tool_function(
                 tool_name=tool.name,
                 tool_description=tool.description or f"MCP tool: {tool.name}",
+                tool_schema=tool.input_schema if hasattr(tool, 'input_schema') else {},
                 mcp_client=self.mcp_client
             )
+            
+            # Wrap it for Agno compatibility
+            tool_function = create_agno_tool(
+                name=tool.name,
+                description=tool.description or f"MCP tool: {tool.name}",
+                schema=tool.input_schema if hasattr(tool, 'input_schema') else {},
+                func=base_function
+            )
+            
             tools.append(tool_function)
         
         logger.info(f"Created {len(tools)} Agno-compatible tool functions")
