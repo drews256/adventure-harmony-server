@@ -160,20 +160,20 @@ class SMSAgent:
             if hasattr(tool, 'input_schema'):
                 print(f"MCP TOOL SCHEMA: {json.dumps(tool.input_schema, indent=2)}", flush=True)
             
+            # Skip tools with potentially invalid schemas
+            if hasattr(tool, 'input_schema') and tool.input_schema:
+                # Check if schema looks valid
+                schema = tool.input_schema
+                if not isinstance(schema, dict) or '$schema' in schema:
+                    print(f"SKIPPING TOOL {tool.name} - potentially invalid schema format", flush=True)
+                    continue
+            
             # Create a function for this tool
-            base_function = create_mcp_tool_function(
+            tool_function = create_mcp_tool_function(
                 tool_name=tool.name,
                 tool_description=tool.description or f"MCP tool: {tool.name}",
                 tool_schema=tool.input_schema if hasattr(tool, 'input_schema') else {},
                 mcp_client=self.mcp_client
-            )
-            
-            # Wrap it for Agno compatibility
-            tool_function = create_agno_tool(
-                name=tool.name,
-                description=tool.description or f"MCP tool: {tool.name}",
-                schema=tool.input_schema if hasattr(tool, 'input_schema') else {},
-                func=base_function
             )
             
             tools.append(tool_function)

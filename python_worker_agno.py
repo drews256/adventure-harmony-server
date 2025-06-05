@@ -21,8 +21,9 @@ from supabase import create_client, Client
 agents_path = os.path.join(os.path.dirname(__file__), 'src', 'agents')
 sys.path.append(agents_path)
 
+from sms_agent_agno_mcp import create_agno_mcp_agent
+# Fallback agents
 from sms_agent_functional import create_sms_agent
-# Fallback to simple agent if MCP is not available
 from sms_agent_simple import SimpleSMSAgent, create_sms_agent as create_simple_sms_agent
 
 # Try to import morning update
@@ -89,18 +90,18 @@ class AgnoWorker:
             print(f"CREATING NEW AGENT FOR CACHE KEY: {cache_key}", flush=True)
             logger.info(f"Initializing Agno SMS agent for profile: {profile_id or 'default'}")
             try:
-                # Try to create agent with MCP support
-                agent = await create_sms_agent(self.supabase, self.mcp_server_url, profile_id)
-                logger.info(f"Agno SMS agent initialized successfully with MCP tools for profile: {profile_id or 'default'}")
+                # Try to create Agno agent with MCP support
+                agent = await create_agno_mcp_agent(self.supabase, self.mcp_server_url, profile_id)
+                logger.info(f"Agno MCP agent initialized successfully for profile: {profile_id or 'default'}")
                 
                 # Log available tools if MCP is connected
-                if hasattr(agent, 'mcp_client') and agent.mcp_client:
-                    print(f"AGENT HAS MCP CLIENT WITH {len(agent.mcp_client.tools)} MCP TOOLS", flush=True)
-                    logger.info(f"MCP connected with {len(agent.mcp_client.tools)} tools available for profile {profile_id or 'default'}")
-                    if len(agent.mcp_client.tools) == 0:
+                if hasattr(agent, 'mcp_tools') and agent.mcp_tools:
+                    print(f"AGENT HAS MCP TOOLS: {len(agent.mcp_tools.tools)} tools", flush=True)
+                    logger.info(f"MCP connected with {len(agent.mcp_tools.tools)} tools available for profile {profile_id or 'default'}")
+                    if len(agent.mcp_tools.tools) == 0:
                         logger.warning("⚠️  No tools loaded from MCP server!")
                 else:
-                    print("AGENT HAS NO MCP CLIENT!", flush=True)
+                    print("AGENT HAS NO MCP TOOLS!", flush=True)
                         
                 self.agents[cache_key] = agent
                         
