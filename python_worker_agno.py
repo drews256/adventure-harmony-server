@@ -58,7 +58,8 @@ class AgnoWorker:
         self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
         
         # MCP server configuration
-        self.mcp_server_url = os.getenv("MCP_SERVER_URL", "localhost:3001")
+        # Use the deployed MCP server on Heroku
+        self.mcp_server_url = os.getenv("MCP_SERVER_URL", "https://goguide-mcp-server-b0a0c27ffa32.herokuapp.com")
         
         # Agent instance (created on demand)
         self.agent = None
@@ -70,10 +71,20 @@ class AgnoWorker:
         """Initialize the Agno agent"""
         if not self.agent:
             logger.info("Initializing Agno SMS agent...")
+            logger.info(f"MCP Server URL: {self.mcp_server_url}")
             try:
                 # Try to create agent with MCP support
                 self.agent = await create_sms_agent(self.supabase, self.mcp_server_url)
                 logger.info("Agno SMS agent initialized successfully with MCP tools")
+                
+                # Log available tools if MCP is connected
+                if hasattr(self.agent, 'mcp_client') and self.agent.mcp_client:
+                    logger.info(f"MCP connected with {len(self.agent.mcp_client.tools)} tools available")
+                    for tool in self.agent.mcp_client.tools[:5]:  # Log first 5 tools
+                        logger.info(f"  - {tool.name}: {tool.description}")
+                    if len(self.agent.mcp_client.tools) > 5:
+                        logger.info(f"  ... and {len(self.agent.mcp_client.tools) - 5} more tools")
+                        
             except Exception as e:
                 logger.warning(f"Failed to initialize MCP-enabled agent: {e}")
                 logger.info("Falling back to simple agent without MCP tools")

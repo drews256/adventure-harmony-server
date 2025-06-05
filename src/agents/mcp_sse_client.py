@@ -68,6 +68,7 @@ class MCPSSEClient:
         for attempt in range(retry_count):
             try:
                 logger.info(f"🔗 Connecting to MCP server at {self.endpoint} (attempt {attempt + 1}/{retry_count})")
+                logger.debug(f"Full server URL: {self.server_url}, Endpoint: {self.endpoint}")
                 
                 # Create HTTP client with proper headers and timeout
                 self._http_client = httpx.AsyncClient(
