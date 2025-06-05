@@ -21,6 +21,8 @@ agents_path = os.path.join(os.path.dirname(__file__), 'src', 'agents')
 sys.path.append(agents_path)
 
 from sms_agent import create_sms_agent
+# Fallback to simple agent if MCP is not available
+from sms_agent_simple import SimpleSMSAgent, create_sms_agent as create_simple_sms_agent
 
 # Try to import morning update
 try:
@@ -68,8 +70,15 @@ class AgnoWorker:
         """Initialize the Agno agent"""
         if not self.agent:
             logger.info("Initializing Agno SMS agent...")
-            self.agent = await create_sms_agent(self.supabase, self.mcp_server_url)
-            logger.info("Agno SMS agent initialized successfully")
+            try:
+                # Try to create agent with MCP support
+                self.agent = await create_sms_agent(self.supabase, self.mcp_server_url)
+                logger.info("Agno SMS agent initialized successfully with MCP tools")
+            except Exception as e:
+                logger.warning(f"Failed to initialize MCP-enabled agent: {e}")
+                logger.info("Falling back to simple agent without MCP tools")
+                self.agent = await create_simple_sms_agent(self.supabase, self.mcp_server_url)
+                logger.info("Simple SMS agent initialized successfully")
             
             # Initialize morning update manager if available
             if MORNING_UPDATE_AVAILABLE and not self.morning_update_manager:
@@ -224,13 +233,17 @@ class AgnoWorker:
             
             message_id = message_result.data[0]['id']
             
-            # Use SMS tool via MCP to send the message
-            if self.agent and self.agent.mcp_client:
-                result = await self.agent.mcp_client.call_tool('send_sms', {
+            # Use Supabase Edge Function to send SMS (like the server does)
+            result = await asyncio.to_thread(
+                self.supabase.functions.invoke,
+                'send-sms',
+                {'body': {
                     'to': phone_number,
                     'message': content
-                })
-                
+                }}
+            )
+            
+            if result.status_code == 200:
                 # Update message status
                 self.supabase.table('conversation_messages').update({
                     'status': 'sent',
@@ -239,7 +252,12 @@ class AgnoWorker:
                 
                 logger.info(f"SMS sent successfully to {phone_number}")
             else:
-                logger.warning("MCP client not available, message stored but not sent")
+                logger.error(f"Failed to send SMS: {result.data}")
+                # Still update message status but mark as failed
+                self.supabase.table('conversation_messages').update({
+                    'status': 'failed',
+                    'error': f"SMS send failed: {result.data}"
+                }).eq('id', message_id).execute()
                 
         except Exception as e:
             logger.error(f"Error sending SMS response: {e}", exc_info=True)

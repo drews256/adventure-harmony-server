@@ -8,20 +8,24 @@ and executes tool calls via MCP server integration.
 import os
 import json
 import asyncio
+import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 import agno
 from agno.agent import Agent
 from agno.models.anthropic import Claude
-from mcp import ClientSession, StdioServerParameters
 from supabase import Client as SupabaseClient
-import httpx
+
+# Import our SSE-based MCP client
+from .mcp_sse_client import MCPSSEClient, create_mcp_client
+
+logger = logging.getLogger(__name__)
 
 class MCPTool:
     """Wrapper for MCP tools to work with Agno"""
     
-    def __init__(self, name: str, description: str, mcp_client: ClientSession):
+    def __init__(self, name: str, description: str, mcp_client: MCPSSEClient):
         self.name = name
         self.description = description
         self.mcp_client = mcp_client
@@ -33,11 +37,28 @@ class MCPTool:
             # Call the MCP tool
             result = await self.mcp_client.call_tool(self._mcp_tool_name, kwargs)
             
-            # Return success result
-            return {
-                "success": True,
-                "data": result.content if hasattr(result, 'content') else str(result)
-            }
+            # Extract the result data
+            if isinstance(result, dict):
+                if 'error' in result:
+                    return {
+                        "success": False,
+                        "error": result['error']
+                    }
+                elif 'result' in result:
+                    return {
+                        "success": True,
+                        "data": result['result']
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "data": str(result)
+                    }
+            else:
+                return {
+                    "success": True,
+                    "data": str(result)
+                }
         except Exception as e:
             return {
                 "success": False,
@@ -52,21 +73,20 @@ class SMSAgent:
         self.supabase = supabase_client
         self.mcp_server_url = mcp_server_url
         # Agent will be created during initialization
-        self.mcp_client = None
+        self.mcp_client: Optional[MCPSSEClient] = None
         self.agent = None
         
     async def initialize(self):
         """Initialize the agent with MCP tools"""
-        # TODO: Fix MCP client initialization
-        # For now, skip MCP and create agent without tools
-        
-        # # Initialize MCP client
-        # await self._init_mcp_client()
-        
-        # # Get available tools from MCP
-        # tools = await self._get_mcp_tools()
-        
-        tools = []  # No tools for now
+        # Initialize MCP client and get tools
+        try:
+            await self._init_mcp_client()
+            tools = await self._get_mcp_tools()
+            logger.info(f"Loaded {len(tools)} tools from MCP server")
+        except Exception as e:
+            logger.warning(f"Failed to initialize MCP client: {e}")
+            logger.warning("Agent will run without tools")
+            tools = []
         
         # Create Agno agent
         self.agent = Agent(
@@ -85,31 +105,22 @@ class SMSAgent:
 
     async def _init_mcp_client(self):
         """Initialize MCP client connection"""
-        # Parse MCP server URL to get host and port
-        if ":" in self.mcp_server_url:
-            host, port = self.mcp_server_url.split(":")
-            port = int(port)
+        # Create full server URL
+        if self.mcp_server_url.startswith('http://') or self.mcp_server_url.startswith('https://'):
+            server_url = self.mcp_server_url
         else:
-            host = self.mcp_server_url
-            port = 3001  # Default MCP port
+            # Default to http if no protocol specified
+            server_url = f"http://{self.mcp_server_url}"
         
-        # Create MCP client session
-        transport = httpx.AsyncHTTPTransport()
-        self.mcp_client = ClientSession(
-            server_params=StdioServerParameters(
-                command=f"http://{host}:{port}"
-            )
-        )
-        await self.mcp_client.initialize()
+        # Create and connect MCP SSE client
+        self.mcp_client = await create_mcp_client(server_url)
     
     async def _get_mcp_tools(self) -> List[MCPTool]:
         """Get available tools from MCP server and wrap them for Agno"""
         tools = []
         
-        # List available tools from MCP
-        available_tools = await self.mcp_client.list_tools()
-        
-        for tool in available_tools.tools:
+        # Tools are already loaded in mcp_client.tools
+        for tool in self.mcp_client.tools:
             # Create Agno-compatible tool wrapper
             agno_tool = MCPTool(
                 name=tool.name,
