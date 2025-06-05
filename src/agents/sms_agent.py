@@ -85,11 +85,14 @@ class SMSAgent:
     async def initialize(self):
         """Initialize the agent with MCP tools"""
         # Initialize MCP client and get tools
+        print(f"SMS AGENT INITIALIZING WITH MCP URL: {self.mcp_server_url}, PROFILE: {self.profile_id}", flush=True)
         try:
             await self._init_mcp_client()
             tools = await self._get_mcp_tools()
+            print(f"SMS AGENT GOT {len(tools)} TOOLS FROM MCP", flush=True)
             logger.info(f"Loaded {len(tools)} tools from MCP server")
         except Exception as e:
+            print(f"SMS AGENT MCP INIT FAILED: {e}", flush=True)
             logger.warning(f"Failed to initialize MCP client: {e}")
             logger.warning("Agent will run without tools")
             tools = []

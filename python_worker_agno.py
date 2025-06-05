@@ -120,7 +120,6 @@ class AgnoWorker:
     async def process_pending_jobs(self):
         """Process pending conversation jobs"""
         try:
-            logger.debug("Checking for pending jobs...")
             # Check for morning update jobs first
             if self.morning_update_manager:
                 morning_jobs = self.supabase.table('conversation_jobs').select('*').eq(
@@ -139,6 +138,7 @@ class AgnoWorker:
             if not result.data:
                 return
             
+            print(f"FOUND {len(result.data)} PENDING JOBS", flush=True)
             logger.info(f"Found {len(result.data)} pending message jobs")
             
             # Process each job
@@ -151,6 +151,7 @@ class AgnoWorker:
     async def _process_job(self, job: Dict[str, Any]):
         """Process a single job"""
         job_id = job['id']
+        print(f"PROCESSING JOB {job_id}", flush=True)
         
         try:
             # Update job status to processing
@@ -173,9 +174,11 @@ class AgnoWorker:
             profile_id = message.get('profile_id')
             
             # Initialize agent for this profile if needed
+            print(f"INITIALIZING AGENT FOR PROFILE: {profile_id}", flush=True)
             agent = await self.initialize_agent(profile_id)
             
             # Process the message with Agno agent
+            print(f"PROCESSING MESSAGE: {message['content'][:50]}", flush=True)
             logger.info(f"Processing message from {message.get('phone_number')} with profile {profile_id}: {message['content'][:50]}...")
             
             response = await agent.process_message(
@@ -184,6 +187,7 @@ class AgnoWorker:
                 phone_number=message['phone_number']
             )
             
+            print(f"AGENT RESPONSE: {response[:100]}", flush=True)
             logger.info(f"Agent response: {response[:100]}...")
             
             # Send SMS response
