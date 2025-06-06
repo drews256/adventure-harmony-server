@@ -26,18 +26,22 @@ class LocalTools(Toolkit):
         # Define local tools
         self.functions = {
             "create_form": Function(
+                name="create_form",
                 fn=self.create_form,
                 description="Create a form to collect information from users"
             ),
             "send_sms_with_link": Function(
+                name="send_sms_with_link",
                 fn=self.send_sms_with_link,
                 description="Send an SMS with a link to a form or calendar"
             ),
             "create_calendar_display": Function(
+                name="create_calendar_display",
                 fn=self.create_calendar_display,
                 description="Create a calendar display showing events"
             ),
             "create_help_request": Function(
+                name="create_help_request",
                 fn=self.create_help_request,
                 description="Create a help request for human assistance"
             )
