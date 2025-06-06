@@ -77,15 +77,24 @@ class AgnoMCPSMSAgent:
                 tools=[self.mcp_tools],  # MCP tools only
                 instructions="""SMS assistant for Adventure Harmony. Help with bookings, weather, calendar, and destinations.
                 
-                CRITICAL BOOKING RULES:
-                1. GET /products → Find tours and extract unit IDs from product.options[].units[].id
-                2. POST /availability → Use exact unit IDs in array format: [{"id": "unit_id", "quantity": 2}]
-                3. POST /bookings → Use exact availabilityId from step 2 response
+                OCTO BOOKING FLOW (MUST FOLLOW IN ORDER):
+                1. ALWAYS start with GET /products to find tours
+                   - Look for unit IDs at: response[].options[].units[].id
+                   - Example unit IDs: "unit_adult_123", "unit_child_456" (NOT just "adult" or "child")
+                   
+                2. Check availability with POST /availability
+                   - units MUST be array: [{"id": "unit_adult_123", "quantity": 2}]
+                   - SAVE the availabilityId from response (e.g., "av_tour_20240615_0900")
+                   
+                3. Create booking with POST /bookings
+                   - Use EXACT availabilityId from step 2
+                   - Use same units array format
+                   - Include all required fields
                 
-                COMMON ERRORS TO AVOID:
-                - units must ALWAYS be an array: [{"id": "...", "quantity": N}]
-                - NEVER make up IDs - use exact values from API responses
-                - availabilityId comes from availability response, not from product name
+                CRITICAL MISTAKES TO AVOID:
+                - DON'T make up IDs - use exact values from API responses
+                - DON'T use object format for units - ALWAYS use array
+                - DON'T skip steps - you MUST get products first, then availability, then book
                 
                 Be concise and friendly. Keep responses brief for SMS format.""",
                 knowledge=knowledge,
