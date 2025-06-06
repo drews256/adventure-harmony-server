@@ -89,29 +89,20 @@ class AgnoWorker:
         if cache_key not in self.agents:
             print(f"CREATING NEW AGENT FOR CACHE KEY: {cache_key}", flush=True)
             logger.info(f"Initializing Agno SMS agent for profile: {profile_id or 'default'}")
-            try:
-                # Try to create Agno agent with MCP support
-                agent = await create_agno_mcp_agent(self.supabase, self.mcp_server_url, profile_id)
-                logger.info(f"Agno MCP agent initialized successfully for profile: {profile_id or 'default'}")
-                
-                # Log available tools if MCP is connected
-                if hasattr(agent, 'mcp_tools') and agent.mcp_tools:
-                    print(f"AGENT HAS MCP TOOLS: {len(agent.mcp_tools.tools)} tools", flush=True)
-                    logger.info(f"MCP connected with {len(agent.mcp_tools.tools)} tools available for profile {profile_id or 'default'}")
-                    if len(agent.mcp_tools.tools) == 0:
-                        logger.warning("⚠️  No tools loaded from MCP server!")
-                else:
-                    print("AGENT HAS NO MCP TOOLS!", flush=True)
-                        
-                self.agents[cache_key] = agent
-                        
-            except Exception as e:
-                print(f"MCP AGENT FAILED: {e}", flush=True)
-                logger.warning(f"Failed to initialize MCP-enabled agent: {e}")
-                logger.info("Falling back to simple agent without MCP tools")
-                agent = await create_simple_sms_agent(self.supabase, self.mcp_server_url)
-                logger.info(f"Simple SMS agent initialized successfully for profile: {profile_id or 'default'}")
-                self.agents[cache_key] = agent
+            # Create Agno agent with MCP support - no fallback
+            agent = await create_agno_mcp_agent(self.supabase, self.mcp_server_url, profile_id)
+            logger.info(f"Agno MCP agent initialized successfully for profile: {profile_id or 'default'}")
+            
+            # Log available tools if MCP is connected
+            if hasattr(agent, 'mcp_tools') and agent.mcp_tools:
+                print(f"AGENT HAS MCP TOOLS: {len(agent.mcp_tools.tools)} tools", flush=True)
+                logger.info(f"MCP connected with {len(agent.mcp_tools.tools)} tools available for profile {profile_id or 'default'}")
+                if len(agent.mcp_tools.tools) == 0:
+                    raise Exception("No tools loaded from MCP server!")
+            else:
+                raise Exception("Agent has no MCP tools!")
+                    
+            self.agents[cache_key] = agent
             
             # Initialize morning update manager if available (only once)
             if MORNING_UPDATE_AVAILABLE and not self.morning_update_manager:

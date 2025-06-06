@@ -62,8 +62,12 @@ class HTTPMCPTools(MCPTools):
                     headers={"Content-Type": "application/json"}
                 )
                 
+                logger.info(f"MCP init response status: {response.status_code}")
+                logger.info(f"MCP init response headers: {dict(response.headers)}")
+                logger.info(f"MCP init response body: {response.text[:500]}")
+                
                 if response.status_code != 200:
-                    raise Exception(f"Failed to initialize MCP: {response.status_code}")
+                    raise Exception(f"Failed to initialize MCP: {response.status_code} - {response.text}")
                 
                 # List tools
                 list_tools_data = {
@@ -80,9 +84,16 @@ class HTTPMCPTools(MCPTools):
                 )
                 
                 if response.status_code != 200:
-                    raise Exception(f"Failed to list tools: {response.status_code}")
+                    raise Exception(f"Failed to list tools: {response.status_code} - {response.text}")
                 
-                result = response.json()
+                # Try to parse JSON response
+                try:
+                    result = response.json()
+                except Exception as e:
+                    logger.error(f"Failed to parse MCP response as JSON: {e}")
+                    logger.error(f"Response text: {response.text}")
+                    raise Exception(f"Invalid JSON response from MCP server: {e}")
+                
                 if "result" in result and "tools" in result["result"]:
                     self.tools = result["result"]["tools"]
                     logger.info(f"Loaded {len(self.tools)} MCP tools")
