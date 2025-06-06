@@ -18,8 +18,10 @@ from supabase import Client as SupabaseClient
 # Import our custom MCP tools integration
 try:
     from .agno_mcp_tools import create_http_mcp_tools
+    from .local_tools import create_local_tools
 except ImportError:
     from agno_mcp_tools import create_http_mcp_tools
+    from local_tools import create_local_tools
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,7 @@ class AgnoMCPSMSAgent:
         self.mcp_server_url = mcp_server_url
         self.profile_id = profile_id
         self.mcp_tools = None
+        self.local_tools = None
         self.agent = None
         self.storage = None
         self.db_url = None  # Will be set from environment or config
@@ -49,6 +52,10 @@ class AgnoMCPSMSAgent:
                 self.mcp_server_url,
                 self.profile_id
             )
+            
+            # Initialize local tools (forms, calendar, SMS, help)
+            logger.info("Initializing local tools")
+            self.local_tools = create_local_tools(self.supabase)
             
             # Load OCTO API documentation as URL knowledge
             logger.info("Adding OCTO API documentation as URL knowledge")
@@ -73,9 +80,10 @@ class AgnoMCPSMSAgent:
             # Create Agno agent with MCP tools, knowledge, and storage
             self.agent = Agent(
                 model=Claude(id="claude-3-5-haiku-20241022"),  # Using Haiku for better rate limits
-                tools=[self.mcp_tools],  # Pass MCP tools object directly
+                tools=[self.local_tools, self.mcp_tools],  # Local utility tools + MCP tools
                 instructions="""SMS assistant for Adventure Harmony. Help with bookings, weather, calendar, and destinations.
-                Be concise and friendly. Keep responses brief for SMS format.""",
+                
+                Use available tools to help users. Be concise and friendly. Keep responses brief for SMS format.""",
                 knowledge=knowledge,
                 storage=self.storage,
                 session_id=self.profile_id or "default",
@@ -88,7 +96,12 @@ class AgnoMCPSMSAgent:
                 # num_history_sessions=2
             )
             
-            logger.info(f"Agno agent created with MCP tools, {len(knowledge)} knowledge sources, and {'session storage' if self.storage else 'no storage'}")
+            # Count total tools
+            mcp_tool_count = len(self.mcp_tools.functions) if hasattr(self.mcp_tools, 'functions') else 0
+            local_tool_count = len(self.local_tools.functions) if hasattr(self.local_tools, 'functions') else 0
+            total_tools = mcp_tool_count + local_tool_count
+            
+            logger.info(f"Agno agent created with {total_tools} tools ({local_tool_count} local utility, {mcp_tool_count} MCP), {len(knowledge)} knowledge sources, and {'session storage' if self.storage else 'no storage'}")
             
         except Exception as e:
             logger.error(f"Failed to initialize MCP tools: {e}")
