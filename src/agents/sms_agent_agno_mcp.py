@@ -11,11 +11,11 @@ from agno.agent import Agent
 from agno.models.anthropic import Claude
 from supabase import Client as SupabaseClient
 
-# Import our custom MCP client
+# Import our custom MCP tools integration
 try:
-    from .agno_mcp_http_client import create_mcp_http_client, MCPTool
+    from .agno_mcp_tools import create_http_mcp_tools
 except ImportError:
-    from agno_mcp_http_client import create_mcp_http_client, MCPTool
+    from agno_mcp_tools import create_http_mcp_tools
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class AgnoMCPSMSAgent:
         self.supabase = supabase_client
         self.mcp_server_url = mcp_server_url
         self.profile_id = profile_id
-        self.mcp_client = None
+        self.mcp_tools = None
         self.agent = None
         
     async def initialize(self):
