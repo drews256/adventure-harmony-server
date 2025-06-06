@@ -83,7 +83,13 @@ class AgnoMCPSMSAgent:
                 knowledge=knowledge,
                 storage=self.storage,
                 session_id=self.profile_id or "default",
-                markdown=True
+                markdown=True,
+                # Conversation history settings
+                add_history_to_messages=True,  # Include previous messages in context
+                num_history_runs=5,  # Include last 5 exchanges (good for SMS conversations)
+                # Optional: Enable if you want agent to search older conversations
+                # search_previous_sessions_history=True,
+                # num_history_sessions=2
             )
             
             logger.info(f"Agno agent created with MCP tools, {len(knowledge)} knowledge sources, and {'session storage' if self.storage else 'no storage'}")
@@ -95,13 +101,13 @@ class AgnoMCPSMSAgent:
     async def process_message(self, message: str, conversation_id: str, phone_number: str) -> str:
         """Process an incoming SMS message and return response"""
         
-        # Get conversation history
-        history = await self._get_conversation_history(conversation_id)
+        # Get conversation history (might not be needed with add_history_to_messages=True)
+        # history = await self._get_conversation_history(conversation_id)
         
         # Run the agent with async method
+        # With add_history_to_messages=True, the agent automatically includes history
         response = await self.agent.arun(
             message=message,
-            messages=history,
             stream=False
         )
         
