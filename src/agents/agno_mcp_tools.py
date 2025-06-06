@@ -131,11 +131,14 @@ class HTTPMCPTools(Toolkit):
                         # Create a proper closure to capture tool_name
                         tool_entrypoint = self._create_tool_entrypoint(tool_name)
                         
+                        # Get the input schema
+                        input_schema = tool_data.get("inputSchema", {"type": "object", "properties": {}})
+                        
                         # Create a Function object following Agno's pattern
                         function = Function(
                             name=tool_name,
                             description=tool_data.get("description", ""),
-                            parameters=tool_data.get("inputSchema", {"type": "object", "properties": {}}),
+                            parameters=input_schema,
                             entrypoint=tool_entrypoint,
                             # Skip processing since we provide the schema directly
                             skip_entrypoint_processing=True
@@ -143,7 +146,9 @@ class HTTPMCPTools(Toolkit):
                         
                         # Register the function with the toolkit
                         self.functions[tool_name] = function
-                        log_debug(f"Registered MCP tool: {tool_name}")
+                        logger.info(f"Registered MCP tool: {tool_name}")
+                        logger.info(f"  Description: {tool_data.get('description', 'No description')}")
+                        logger.info(f"  Schema: {json.dumps(input_schema, indent=2)}")
                     
                     logger.info(f"Loaded {len(self.functions)} MCP tools")
                 else:
@@ -158,7 +163,11 @@ class HTTPMCPTools(Toolkit):
     def _create_tool_entrypoint(self, tool_name: str) -> Callable:
         """Create a tool entrypoint function with proper closure"""
         async def entrypoint(**kwargs):
-            return await self._call_tool(tool_name, kwargs)
+            logger.info(f"Tool entrypoint called: {tool_name}")
+            logger.info(f"Tool arguments: {json.dumps(kwargs, indent=2)}")
+            result = await self._call_tool(tool_name, kwargs)
+            logger.info(f"Tool {tool_name} result: {json.dumps(result, indent=2) if isinstance(result, (dict, list)) else str(result)}")
+            return result
         
         # Set function name for better debugging
         entrypoint.__name__ = tool_name
@@ -193,9 +202,13 @@ class HTTPMCPTools(Toolkit):
             
     async def _call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """Call a specific MCP tool"""
+        logger.info(f"=== MCP Tool Call: {tool_name} ===")
+        logger.info(f"Raw arguments: {json.dumps(arguments, indent=2)}")
+        
         async with httpx.AsyncClient(timeout=30.0) as client:
             # Extract profileId from arguments if present
             profile_id = arguments.pop('profileId', None) if 'profileId' in arguments else self.profile_id
+            logger.info(f"Profile ID for call: {profile_id}")
             
             call_data = {
                 "jsonrpc": "2.0",
@@ -211,6 +224,8 @@ class HTTPMCPTools(Toolkit):
             if profile_id:
                 call_data["params"]["profileId"] = profile_id
             
+            logger.info(f"MCP call data: {json.dumps(call_data, indent=2)}")
+            
             headers = {
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream"
@@ -224,16 +239,23 @@ class HTTPMCPTools(Toolkit):
                 headers=headers
             )
             
+            logger.info(f"MCP response status: {response.status_code}")
+            
             if response.status_code != 200:
+                logger.error(f"Tool call failed: {response.text}")
                 raise Exception(f"Tool call failed: {response.status_code} - {response.text}")
             
             result = self._parse_response(response)
+            logger.info(f"MCP parsed response: {json.dumps(result, indent=2) if isinstance(result, (dict, list)) else str(result)}")
             
             if "result" in result:
+                logger.info(f"=== End MCP Tool Call: {tool_name} (success) ===")
                 return result["result"]
             elif "error" in result:
+                logger.error(f"Tool error: {result['error']}")
                 raise Exception(f"Tool error: {result['error']}")
             else:
+                logger.info(f"=== End MCP Tool Call: {tool_name} (raw result) ===")
                 return result
 
 
