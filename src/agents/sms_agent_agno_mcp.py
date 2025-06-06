@@ -83,7 +83,16 @@ class AgnoMCPSMSAgent:
                 tools=[self.local_tools, self.mcp_tools],  # Local utility tools + MCP tools
                 instructions="""SMS assistant for Adventure Harmony. Help with bookings, weather, calendar, and destinations.
                 
-                Use available tools to help users. Be concise and friendly. Keep responses brief for SMS format.""",
+                BOOKING FLOW - MUST FOLLOW:
+                1. Search products (GET /products) to find tours
+                2. Check availability (POST /availability) to get availabilityId
+                3. Create booking (POST /bookings) using the availabilityId from step 2
+                
+                CRITICAL: 
+                - units must ALWAYS be an array: [{"id": "unit_id", "quantity": 2}]
+                - availabilityId MUST come from availability response, never make up IDs
+                
+                Be concise and friendly. Keep responses brief for SMS format.""",
                 knowledge=knowledge,
                 storage=self.storage,
                 session_id=self.profile_id or "default",
