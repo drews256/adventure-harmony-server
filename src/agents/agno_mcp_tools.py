@@ -23,6 +23,7 @@ class HTTPMCPTools(MCPTools):
         self.profile_id = profile_id
         self.tools = []
         self._initialized = False
+        self.functions = {}  # Agno expects this attribute
         
     async def __aenter__(self):
         """Initialize connection to MCP server"""
@@ -64,10 +65,22 @@ class HTTPMCPTools(MCPTools):
                 
                 logger.info(f"MCP init response status: {response.status_code}")
                 logger.info(f"MCP init response headers: {dict(response.headers)}")
-                logger.info(f"MCP init response body: {response.text[:500]}")
                 
                 if response.status_code != 200:
                     raise Exception(f"Failed to initialize MCP: {response.status_code} - {response.text}")
+                
+                # Parse init response if needed (SSE or JSON)
+                if response.text.strip():
+                    if response.text.startswith('event:'):
+                        # Parse SSE response
+                        for line in response.text.strip().split('\n'):
+                            if line.startswith('data: '):
+                                data_json = line[6:]
+                                try:
+                                    init_result = json.loads(data_json)
+                                    logger.info(f"MCP initialized: {init_result}")
+                                except json.JSONDecodeError:
+                                    pass
                 
                 # List tools
                 list_tools_data = {
@@ -86,17 +99,49 @@ class HTTPMCPTools(MCPTools):
                 if response.status_code != 200:
                     raise Exception(f"Failed to list tools: {response.status_code} - {response.text}")
                 
-                # Try to parse JSON response
-                try:
-                    result = response.json()
-                except Exception as e:
-                    logger.error(f"Failed to parse MCP response as JSON: {e}")
-                    logger.error(f"Response text: {response.text}")
-                    raise Exception(f"Invalid JSON response from MCP server: {e}")
+                # Parse response based on content type
+                content_type = response.headers.get('content-type', '')
+                
+                if 'text/event-stream' in content_type or response.text.startswith('event:'):
+                    # Parse SSE response
+                    result = None
+                    for line in response.text.strip().split('\n'):
+                        if line.startswith('data: '):
+                            data_json = line[6:]  # Remove 'data: ' prefix
+                            try:
+                                result = json.loads(data_json)
+                                break
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    if not result:
+                        raise Exception("No valid JSON found in SSE response")
+                else:
+                    # Try to parse as regular JSON
+                    try:
+                        result = response.json()
+                    except Exception as e:
+                        logger.error(f"Failed to parse MCP response as JSON: {e}")
+                        logger.error(f"Response text: {response.text}")
+                        raise Exception(f"Invalid JSON response from MCP server: {e}")
                 
                 if "result" in result and "tools" in result["result"]:
                     self.tools = result["result"]["tools"]
                     logger.info(f"Loaded {len(self.tools)} MCP tools")
+                    
+                    # Populate functions dict for Agno compatibility
+                    for tool in self.tools:
+                        tool_name = tool["name"]
+                        # Create a callable function for this tool
+                        async def tool_func(arguments: Dict[str, Any], _tool_name=tool_name) -> Any:
+                            return await self._call_tool(_tool_name, arguments)
+                        
+                        # Set function metadata
+                        tool_func.__name__ = tool_name
+                        tool_func.description = tool.get("description", "")
+                        tool_func.input_schema = tool.get("inputSchema", {})
+                        
+                        self.functions[tool_name] = tool_func
                 else:
                     logger.warning("No tools found in MCP response")
                     
