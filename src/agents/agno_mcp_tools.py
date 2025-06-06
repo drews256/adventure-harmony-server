@@ -65,7 +65,7 @@ class HTTPMCPTools(Toolkit):
                     json=init_data,
                     headers={
                         "Content-Type": "application/json",
-                        "Accept": "application/json"
+                        "Accept": "application/json, text/event-stream"
                     }
                 )
                 
@@ -96,7 +96,7 @@ class HTTPMCPTools(Toolkit):
                 
                 headers = {
                     "Content-Type": "application/json",
-                    "Accept": "application/json"
+                    "Accept": "application/json, text/event-stream"
                 }
                 if self.session_id:
                     headers["x-mcp-session-id"] = self.session_id
@@ -204,7 +204,7 @@ class HTTPMCPTools(Toolkit):
             
             headers = {
                 "Content-Type": "application/json",
-                "Accept": "application/json"
+                "Accept": "application/json, text/event-stream"
             }
             if self.session_id:
                 headers["x-mcp-session-id"] = self.session_id
