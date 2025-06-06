@@ -79,6 +79,8 @@ This SMS Processing Server enables automated text message interactions by:
 - **Contextual Conversations**: Maintains conversation history per phone number
 - **Tool Integration**: Executes tools for bookings, calendars, forms, and more via MCP
 - **Multi-Agent Support**: Agno framework enables sophisticated agent orchestration
+- **Session Persistence**: PostgreSQL-based session storage for agent memory across conversations
+- **URL Knowledge**: Integrated OCTO API documentation for travel/tourism domain expertise
 - **Error Recovery**: Graceful handling of failures with user-friendly messages
 - **Rate Limit Management**: Smart conversation history trimming
 - **Flexible Form System**: Dynamic form generation based on JSON schemas
@@ -136,6 +138,11 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Anthropic Configuration
 ANTHROPIC_API_KEY=your-anthropic-api-key
+
+# Database Configuration for Agno Session Storage
+# Uses Supabase Postgres with connection pooler
+# Password special characters must be URL-encoded (& becomes %26, etc.)
+DATABASE_URL=postgresql+psycopg://postgres.project_id:password@aws-0-region.pooler.supabase.com:5432/postgres
 
 # Optional: MCP Configuration
 MCP_SERVER_URL=http://localhost:3001

@@ -60,7 +60,8 @@ class AgnoMCPSMSAgent:
                 logger.info(f"Initializing Postgres storage for profile: {self.profile_id}")
                 self.storage = PostgresStorage(
                     table_name="agent_sessions",
-                    db_url=self.db_url
+                    db_url=self.db_url,
+                    auto_upgrade_schema=True  # Enable automatic schema upgrades
                 )
             
             # Create Agno agent with MCP tools, knowledge, and storage
