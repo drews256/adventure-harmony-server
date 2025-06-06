@@ -84,12 +84,13 @@ class AgnoMCPSMSAgent:
                 instructions="""SMS assistant for Adventure Harmony. Help with bookings, weather, calendar, and destinations.
                 
                 BOOKING FLOW - MUST FOLLOW:
-                1. Search products (GET /products) to find tours
-                2. Check availability (POST /availability) to get availabilityId
+                1. Search products (GET /products) to find tours AND get unit IDs from product.options[].units[]
+                2. Check availability (POST /availability) using the unit IDs from step 1
                 3. Create booking (POST /bookings) using the availabilityId from step 2
                 
                 CRITICAL: 
-                - units must ALWAYS be an array: [{"id": "unit_id", "quantity": 2}]
+                - Unit IDs come from products response: product.options[].units[].id
+                - units must ALWAYS be an array: [{"id": "unit_adult", "quantity": 2}]
                 - availabilityId MUST come from availability response, never make up IDs
                 
                 Be concise and friendly. Keep responses brief for SMS format.""",

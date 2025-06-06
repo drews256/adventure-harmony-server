@@ -5,9 +5,36 @@ This guide helps the agent correctly use the OCTO API endpoints for booking tour
 ## Important: API Flow
 
 The OCTO API requires a specific flow:
-1. **Search products** → Get product IDs
+1. **Search products** → Get product IDs, option IDs, and unit IDs
 2. **Check availability** → Get availability IDs and time slots  
 3. **Create booking** → Use the availability ID from step 2
+
+## Where to Find Unit IDs
+
+Units are NOT a separate API endpoint. They come from the `/products` response:
+
+```
+GET /products
+└── Product
+    ├── id: "tour_123"
+    └── options: [
+        {
+            id: "morning_tour",
+            units: [
+                {
+                    id: "unit_adult",        // <-- Use this ID
+                    internalName: "Adult",
+                    pricing: [...]
+                },
+                {
+                    id: "unit_child",        // <-- Use this ID
+                    internalName: "Child (5-12)",
+                    pricing: [...]
+                }
+            ]
+        }
+    ]
+```
 
 ## Common Errors and Solutions
 
