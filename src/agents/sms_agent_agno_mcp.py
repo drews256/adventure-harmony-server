@@ -9,7 +9,7 @@ from datetime import datetime
 
 from agno.agent import Agent
 from agno.models.anthropic import Claude
-from agno.knowledge import UrlKnowledge
+from agno.knowledge.url import UrlKnowledge
 from agno.storage.postgres import PostgresStorage
 from supabase import Client as SupabaseClient
 
