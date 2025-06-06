@@ -181,6 +181,9 @@ class AgnoWorker:
             # Log message details
             profile_id = message.get('profile_id')
             
+            # Debug profile_id
+            print(f"RAW PROFILE_ID FROM MESSAGE: {repr(profile_id)} (type: {type(profile_id).__name__})", flush=True)
+            
             # Initialize agent for this profile if needed
             print(f"INITIALIZING AGENT FOR PROFILE: {profile_id}", flush=True)
             agent = await self.initialize_agent(profile_id)

@@ -28,6 +28,8 @@ class HTTPMCPTools(Toolkit):
         self.session_id = None
         self._initialized = False
         
+        logger.info(f"HTTPMCPTools initialized with profile_id: {repr(profile_id)}")
+        
     async def __aenter__(self):
         """Initialize connection to MCP server"""
         await self.initialize()
@@ -208,7 +210,7 @@ class HTTPMCPTools(Toolkit):
         async with httpx.AsyncClient(timeout=30.0) as client:
             # Extract profileId from arguments if present
             profile_id = arguments.pop('profileId', None) if 'profileId' in arguments else self.profile_id
-            logger.info(f"Profile ID for call: {profile_id}")
+            logger.info(f"Profile ID for call: {repr(profile_id)} (from args: {'profileId' in arguments}, instance: {repr(self.profile_id)})")
             
             call_data = {
                 "jsonrpc": "2.0",
