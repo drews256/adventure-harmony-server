@@ -18,12 +18,8 @@ from supabase import Client as SupabaseClient
 # Import our custom MCP tools integration
 try:
     from .agno_mcp_tools import create_http_mcp_tools
-    from .local_tools import create_local_tools
-    from .octo_helper_tools import create_octo_helper_tools
 except ImportError:
     from agno_mcp_tools import create_http_mcp_tools
-    from local_tools import create_local_tools
-    from octo_helper_tools import create_octo_helper_tools
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +32,6 @@ class AgnoMCPSMSAgent:
         self.mcp_server_url = mcp_server_url
         self.profile_id = profile_id
         self.mcp_tools = None
-        self.local_tools = None
-        self.octo_helper_tools = None
         self.agent = None
         self.storage = None
         self.db_url = None  # Will be set from environment or config
@@ -56,13 +50,6 @@ class AgnoMCPSMSAgent:
                 self.profile_id
             )
             
-            # Initialize local tools (forms, calendar, SMS, help)
-            logger.info("Initializing local tools")
-            self.local_tools = create_local_tools(self.supabase)
-            
-            # Initialize OCTO helper tools
-            logger.info("Initializing OCTO helper tools")
-            self.octo_helper_tools = create_octo_helper_tools()
             
             # Load OCTO API documentation as URL knowledge
             logger.info("Adding OCTO API documentation as URL knowledge")
@@ -87,19 +74,18 @@ class AgnoMCPSMSAgent:
             # Create Agno agent with MCP tools, knowledge, and storage
             self.agent = Agent(
                 model=Claude(id="claude-3-5-haiku-20241022"),  # Using Haiku for better rate limits
-                tools=[self.octo_helper_tools, self.local_tools, self.mcp_tools],  # Helper tools first
+                tools=[self.mcp_tools],  # MCP tools only
                 instructions="""SMS assistant for Adventure Harmony. Help with bookings, weather, calendar, and destinations.
                 
-                BOOKING FLOW - USE HELPER TOOLS:
-                1. Search products (GET /products), then use parse_products_for_booking to extract IDs
-                2. Use format_availability_request to create proper availability check
-                3. Use format_booking_request to create booking from availability response
+                CRITICAL BOOKING RULES:
+                1. GET /products → Find tours and extract unit IDs from product.options[].units[].id
+                2. POST /availability → Use exact unit IDs in array format: [{"id": "unit_id", "quantity": 2}]
+                3. POST /bookings → Use exact availabilityId from step 2 response
                 
-                HELPER TOOLS AVAILABLE:
-                - parse_products_for_booking: Extract product/option/unit IDs from search
-                - format_availability_request: Create proper availability check with units array
-                - format_booking_request: Create booking using availability response
-                - get_unit_ids_for_product: Look up unit IDs for a product
+                COMMON ERRORS TO AVOID:
+                - units must ALWAYS be an array: [{"id": "...", "quantity": N}]
+                - NEVER make up IDs - use exact values from API responses
+                - availabilityId comes from availability response, not from product name
                 
                 Be concise and friendly. Keep responses brief for SMS format.""",
                 knowledge=knowledge,
@@ -116,11 +102,8 @@ class AgnoMCPSMSAgent:
             
             # Count total tools
             mcp_tool_count = len(self.mcp_tools.functions) if hasattr(self.mcp_tools, 'functions') else 0
-            local_tool_count = len(self.local_tools.functions) if hasattr(self.local_tools, 'functions') else 0
-            octo_helper_count = len(self.octo_helper_tools.functions) if hasattr(self.octo_helper_tools, 'functions') else 0
-            total_tools = mcp_tool_count + local_tool_count + octo_helper_count
             
-            logger.info(f"Agno agent created with {total_tools} tools ({octo_helper_count} OCTO helpers, {local_tool_count} local utility, {mcp_tool_count} MCP), {len(knowledge)} knowledge sources, and {'session storage' if self.storage else 'no storage'}")
+            logger.info(f"Agno agent created with {mcp_tool_count} MCP tools, {len(knowledge)} knowledge sources, and {'session storage' if self.storage else 'no storage'}")
             
         except Exception as e:
             logger.error(f"Failed to initialize MCP tools: {e}")
