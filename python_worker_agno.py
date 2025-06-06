@@ -87,8 +87,11 @@ class AgnoWorker:
         print(f"CREATING NEW AGENT FOR PROFILE: {profile_id}", flush=True)
         logger.info(f"Initializing Agno SMS agent for profile: {profile_id or 'default'}")
         
+        # Get database URL for session storage
+        db_url = os.getenv('DATABASE_URL')
+        
         # Create Agno agent with MCP support - no fallback
-        agent = await create_agno_mcp_agent(self.supabase, self.mcp_server_url, profile_id)
+        agent = await create_agno_mcp_agent(self.supabase, self.mcp_server_url, profile_id, db_url)
         logger.info(f"Agno MCP agent initialized successfully for profile: {profile_id or 'default'}")
         
         # Log available tools if MCP is connected

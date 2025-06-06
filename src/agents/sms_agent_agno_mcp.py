@@ -9,6 +9,8 @@ from datetime import datetime
 
 from agno.agent import Agent
 from agno.models.anthropic import Claude
+from agno.knowledge import UrlKnowledge
+from agno.storage.postgres import PostgresStorage
 from supabase import Client as SupabaseClient
 
 # Import our custom MCP tools integration
@@ -29,6 +31,8 @@ class AgnoMCPSMSAgent:
         self.profile_id = profile_id
         self.mcp_tools = None
         self.agent = None
+        self.storage = None
+        self.db_url = None  # Will be set from environment or config
         
     async def initialize(self):
         """Initialize the agent with MCP tools"""
@@ -40,7 +44,26 @@ class AgnoMCPSMSAgent:
                 self.profile_id
             )
             
-            # Create Agno agent with MCP tools
+            # Load OCTO API documentation as URL knowledge
+            logger.info("Adding OCTO API documentation as URL knowledge")
+            octo_docs = UrlKnowledge(url="https://docs.octo.travel/")
+            knowledge = [octo_docs]
+            
+            # Initialize storage if database URL is available
+            if not self.db_url:
+                # Get database URL from environment or use Supabase connection
+                self.db_url = os.getenv('DATABASE_URL')
+                if not self.db_url:
+                    logger.warning("No DATABASE_URL found, agent will run without session storage")
+            
+            if self.db_url:
+                logger.info(f"Initializing Postgres storage for profile: {self.profile_id}")
+                self.storage = PostgresStorage(
+                    table_name="agent_sessions",
+                    db_url=self.db_url
+                )
+            
+            # Create Agno agent with MCP tools, knowledge, and storage
             self.agent = Agent(
                 model=Claude(id="claude-3-5-sonnet-20241022"),
                 tools=[self.mcp_tools],  # Pass MCP tools object directly
@@ -56,10 +79,13 @@ class AgnoMCPSMSAgent:
                 
                 You have access to various tools for searching activities, making bookings,
                 checking weather, and managing calendars.""",
+                knowledge=knowledge,
+                storage=self.storage,
+                session_id=self.profile_id or "default",
                 markdown=True
             )
             
-            logger.info(f"Agno agent created with MCP tools")
+            logger.info(f"Agno agent created with MCP tools, {len(knowledge)} knowledge sources, and {'session storage' if self.storage else 'no storage'}")
             
         except Exception as e:
             logger.error(f"Failed to initialize MCP tools: {e}")
@@ -123,8 +149,10 @@ class AgnoMCPSMSAgent:
 
 
 # Factory function to create agent
-async def create_agno_mcp_agent(supabase_client: SupabaseClient, mcp_server_url: str, profile_id: Optional[str] = None) -> AgnoMCPSMSAgent:
+async def create_agno_mcp_agent(supabase_client: SupabaseClient, mcp_server_url: str, profile_id: Optional[str] = None, db_url: Optional[str] = None) -> AgnoMCPSMSAgent:
     """Create and initialize Agno MCP SMS agent"""
     agent = AgnoMCPSMSAgent(supabase_client, mcp_server_url, profile_id)
+    if db_url:
+        agent.db_url = db_url
     await agent.initialize()
     return agent
