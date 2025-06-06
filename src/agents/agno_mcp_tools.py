@@ -137,6 +137,35 @@ class HTTPMCPTools(Toolkit):
                         # Get the input schema
                         input_schema = tool_data.get("inputSchema", {"type": "object", "properties": {}})
                         
+                        # Log the full tool schema for debugging
+                        logger.info(f"Tool {tool_name} full schema before modification: {json.dumps(input_schema, indent=2)}")
+                        
+                        # Check for problematic parameters in the schema and remove defaults
+                        if "properties" in input_schema:
+                            # Check authToken
+                            if "authToken" in input_schema["properties"]:
+                                auth_token_prop = input_schema["properties"]["authToken"]
+                                logger.warning(f"Tool {tool_name} has authToken in schema: {auth_token_prop}")
+                                if isinstance(auth_token_prop, dict) and auth_token_prop.get("default") == "token":
+                                    logger.warning(f"Tool {tool_name} has authToken with default='token' - removing default")
+                                    auth_token_prop.pop("default", None)
+                            
+                            # Check credentialName  
+                            if "credentialName" in input_schema["properties"]:
+                                cred_prop = input_schema["properties"]["credentialName"]
+                                logger.warning(f"Tool {tool_name} has credentialName in schema: {cred_prop}")
+                                if isinstance(cred_prop, dict) and cred_prop.get("default") == "default":
+                                    logger.warning(f"Tool {tool_name} has credentialName with default='default' - removing default")
+                                    cred_prop.pop("default", None)
+                            
+                            # Check tenant
+                            if "tenant" in input_schema["properties"]:
+                                tenant_prop = input_schema["properties"]["tenant"]
+                                logger.warning(f"Tool {tool_name} has tenant in schema: {tenant_prop}")
+                                if isinstance(tenant_prop, dict) and tenant_prop.get("default") == "default":
+                                    logger.warning(f"Tool {tool_name} has tenant with default='default' - removing default")
+                                    tenant_prop.pop("default", None)
+                        
                         # Remove profileId from schema if present - it's handled separately
                         if "properties" in input_schema and "profileId" in input_schema["properties"]:
                             input_schema["properties"].pop("profileId", None)
@@ -172,7 +201,27 @@ class HTTPMCPTools(Toolkit):
         """Create a tool entrypoint function with proper closure"""
         async def entrypoint(**kwargs):
             logger.info(f"Tool entrypoint called: {tool_name}")
-            logger.info(f"Tool arguments: {json.dumps(kwargs, indent=2)}")
+            logger.info(f"Tool arguments from Agno: {json.dumps(kwargs, indent=2)}")
+            
+            # Check for problematic default values added by Agno and remove them
+            if 'authToken' in kwargs:
+                logger.warning(f"authToken found in arguments from Agno: {kwargs['authToken']}")
+                # Remove it if it's the default "token" value
+                if kwargs['authToken'] == 'token':
+                    logger.warning("Removing default authToken='token' from arguments")
+                    kwargs.pop('authToken', None)
+            
+            if 'credentialName' in kwargs:
+                logger.warning(f"credentialName found in arguments from Agno: {kwargs['credentialName']}")
+                if kwargs['credentialName'] == 'default':
+                    logger.warning("Removing default credentialName='default' from arguments")
+                    kwargs.pop('credentialName', None)
+            
+            if 'tenant' in kwargs:
+                logger.warning(f"tenant found in arguments from Agno: {kwargs['tenant']}")
+                if kwargs['tenant'] == 'default':
+                    logger.warning("Removing default tenant='default' from arguments")
+                    kwargs.pop('tenant', None)
             
             # Always ensure profileId is included if we have one
             if self.profile_id and 'profileId' not in kwargs:
