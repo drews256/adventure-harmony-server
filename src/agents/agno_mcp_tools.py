@@ -136,6 +136,11 @@ class HTTPMCPTools(Toolkit):
                         # Get the input schema
                         input_schema = tool_data.get("inputSchema", {"type": "object", "properties": {}})
                         
+                        # Remove profileId from schema if present - it's handled separately
+                        if "properties" in input_schema and "profileId" in input_schema["properties"]:
+                            input_schema["properties"].pop("profileId", None)
+                            logger.info(f"Removed profileId from {tool_name} schema - will be handled automatically")
+                        
                         # Create a Function object following Agno's pattern
                         function = Function(
                             name=tool_name,
@@ -167,6 +172,12 @@ class HTTPMCPTools(Toolkit):
         async def entrypoint(**kwargs):
             logger.info(f"Tool entrypoint called: {tool_name}")
             logger.info(f"Tool arguments: {json.dumps(kwargs, indent=2)}")
+            
+            # Always ensure profileId is included if we have one
+            if self.profile_id and 'profileId' not in kwargs:
+                kwargs['profileId'] = self.profile_id
+                logger.info(f"Added instance profile_id to arguments: {self.profile_id}")
+            
             result = await self._call_tool(tool_name, kwargs)
             logger.info(f"Tool {tool_name} result: {json.dumps(result, indent=2) if isinstance(result, (dict, list)) else str(result)}")
             return result
@@ -208,9 +219,10 @@ class HTTPMCPTools(Toolkit):
         logger.info(f"Raw arguments: {json.dumps(arguments, indent=2)}")
         
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Extract profileId from arguments if present
-            profile_id = arguments.pop('profileId', None) if 'profileId' in arguments else self.profile_id
-            logger.info(f"Profile ID for call: {repr(profile_id)} (from args: {'profileId' in arguments}, instance: {repr(self.profile_id)})")
+            # Extract profileId from arguments if present, otherwise use instance profile_id
+            from_args = 'profileId' in arguments
+            profile_id = arguments.pop('profileId', self.profile_id) if from_args else self.profile_id
+            logger.info(f"Profile ID for call: {repr(profile_id)} (from args: {from_args}, instance: {repr(self.profile_id)})")
             
             call_data = {
                 "jsonrpc": "2.0",
@@ -222,7 +234,7 @@ class HTTPMCPTools(Toolkit):
                 "id": 3
             }
             
-            # Use the profile_id from arguments or fall back to instance profile_id
+            # Add profileId to params (not arguments) - consistent with tools/list
             if profile_id:
                 call_data["params"]["profileId"] = profile_id
             
