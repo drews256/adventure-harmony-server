@@ -4,6 +4,8 @@ SMS Agent using Agno with proper MCP integration
 
 import os
 import logging
+import time
+import asyncio
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
@@ -33,6 +35,10 @@ class AgnoMCPSMSAgent:
         self.agent = None
         self.storage = None
         self.db_url = None  # Will be set from environment or config
+        
+        # Rate limiting protection
+        self._last_request_time = 0
+        self._min_request_interval = 0.5  # 500ms between requests to avoid bursts
         
     async def initialize(self):
         """Initialize the agent with MCP tools"""
@@ -66,27 +72,17 @@ class AgnoMCPSMSAgent:
             
             # Create Agno agent with MCP tools, knowledge, and storage
             self.agent = Agent(
-                model=Claude(id="claude-3-5-sonnet-20241022"),
+                model=Claude(id="claude-3-5-haiku-20241022"),  # Using Haiku for better rate limits
                 tools=[self.mcp_tools],  # Pass MCP tools object directly
-                instructions="""You are a helpful SMS assistant for Adventure Harmony Planner.
-                You help users with:
-                - Booking tours, activities, and rentals
-                - Checking weather information
-                - Managing their calendar
-                - Answering questions about destinations
-                
-                Always be concise and friendly. Remember that responses will be sent via SMS,
-                so keep them brief and to the point.
-                
-                You have access to various tools for searching activities, making bookings,
-                checking weather, and managing calendars.""",
+                instructions="""SMS assistant for Adventure Harmony. Help with bookings, weather, calendar, and destinations.
+                Be concise and friendly. Keep responses brief for SMS format.""",
                 knowledge=knowledge,
                 storage=self.storage,
                 session_id=self.profile_id or "default",
                 markdown=True,
                 # Conversation history settings
                 add_history_to_messages=True,  # Include previous messages in context
-                num_history_runs=5,  # Include last 5 exchanges (good for SMS conversations)
+                num_history_runs=3,  # Reduced to 3 exchanges to save tokens
                 # Optional: Enable if you want agent to search older conversations
                 # search_previous_sessions_history=True,
                 # num_history_sessions=2
@@ -101,15 +97,29 @@ class AgnoMCPSMSAgent:
     async def process_message(self, message: str, conversation_id: str, phone_number: str) -> str:
         """Process an incoming SMS message and return response"""
         
-        # Get conversation history (might not be needed with add_history_to_messages=True)
-        # history = await self._get_conversation_history(conversation_id)
+        # Rate limiting protection
+        current_time = time.time()
+        time_since_last = current_time - self._last_request_time
+        if time_since_last < self._min_request_interval:
+            await asyncio.sleep(self._min_request_interval - time_since_last)
+        
+        self._last_request_time = time.time()
+        
+        # Log API call for monitoring
+        logger.info(f"API call for profile {self.profile_id} at {datetime.now()}")
         
         # Run the agent with async method
         # With add_history_to_messages=True, the agent automatically includes history
-        response = await self.agent.arun(
-            message=message,
-            stream=False
-        )
+        try:
+            response = await self.agent.arun(
+                message=message,
+                stream=False
+            )
+        except Exception as e:
+            if "rate_limit" in str(e).lower():
+                logger.warning(f"Rate limit hit for profile {self.profile_id}: {e}")
+                # Could implement fallback logic here
+            raise
         
         # Extract the response text
         if hasattr(response, 'content'):
