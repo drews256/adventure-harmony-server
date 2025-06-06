@@ -111,6 +111,7 @@ class HTTPMCPTools(Toolkit):
                     raise Exception(f"Failed to list tools: {response.status_code} - {response.text}")
                 
                 tools_result = self._parse_response(response)
+                logger.info(f"Tools list response: {json.dumps(tools_result, indent=2)}")
                 
                 if "result" in tools_result and "tools" in tools_result["result"]:
                     # Register tools with the toolkit using Function objects

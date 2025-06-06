@@ -95,9 +95,11 @@ class AgnoWorker:
             
             # Log available tools if MCP is connected
             if hasattr(agent, 'mcp_tools') and agent.mcp_tools:
-                print(f"AGENT HAS MCP TOOLS: {len(agent.mcp_tools.tools)} tools", flush=True)
-                logger.info(f"MCP connected with {len(agent.mcp_tools.tools)} tools available for profile {profile_id or 'default'}")
-                if len(agent.mcp_tools.tools) == 0:
+                # Check functions dict for Toolkit pattern
+                tool_count = len(agent.mcp_tools.functions) if hasattr(agent.mcp_tools, 'functions') else 0
+                print(f"AGENT HAS MCP TOOLS: {tool_count} tools", flush=True)
+                logger.info(f"MCP connected with {tool_count} tools available for profile {profile_id or 'default'}")
+                if tool_count == 0:
                     raise Exception("No tools loaded from MCP server!")
             else:
                 raise Exception("Agent has no MCP tools!")
