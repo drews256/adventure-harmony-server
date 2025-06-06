@@ -90,9 +90,13 @@ class HTTPMCPTools(Toolkit):
                 list_tools_data = {
                     "jsonrpc": "2.0",
                     "method": "tools/list",
-                    "params": {"profileId": self.profile_id} if self.profile_id else {},
+                    "params": {},
                     "id": 2
                 }
+                
+                # Add profileId to params if available
+                if self.profile_id:
+                    list_tools_data["params"]["profileId"] = self.profile_id
                 
                 headers = {
                     "Content-Type": "application/json",
@@ -190,6 +194,9 @@ class HTTPMCPTools(Toolkit):
     async def _call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """Call a specific MCP tool"""
         async with httpx.AsyncClient(timeout=30.0) as client:
+            # Extract profileId from arguments if present
+            profile_id = arguments.pop('profileId', None) if 'profileId' in arguments else self.profile_id
+            
             call_data = {
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -200,8 +207,9 @@ class HTTPMCPTools(Toolkit):
                 "id": 3
             }
             
-            if self.profile_id:
-                call_data["params"]["profileId"] = self.profile_id
+            # Use the profile_id from arguments or fall back to instance profile_id
+            if profile_id:
+                call_data["params"]["profileId"] = profile_id
             
             headers = {
                 "Content-Type": "application/json",
