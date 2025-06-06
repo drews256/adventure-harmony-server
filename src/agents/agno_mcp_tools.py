@@ -41,8 +41,9 @@ class HTTPMCPTools(Toolkit):
         
     async def initialize(self):
         """Connect to MCP server and load tools"""
-        if self._initialized:
-            return
+        # Always re-initialize to get fresh tools
+        self._initialized = False
+        self.functions = {}  # Clear any existing functions
             
         try:
             # Connect to MCP server and get tools

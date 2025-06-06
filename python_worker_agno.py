@@ -83,46 +83,40 @@ class AgnoWorker:
     
     async def initialize_agent(self, profile_id: Optional[str] = None):
         """Initialize the Agno agent for a specific profile"""
-        # Use a default key for agents without profile
-        cache_key = profile_id or "default"
+        # REMOVED CACHING - Create fresh agent every time to ensure latest tools
+        print(f"CREATING NEW AGENT FOR PROFILE: {profile_id}", flush=True)
+        logger.info(f"Initializing Agno SMS agent for profile: {profile_id or 'default'}")
         
-        if cache_key not in self.agents:
-            print(f"CREATING NEW AGENT FOR CACHE KEY: {cache_key}", flush=True)
-            logger.info(f"Initializing Agno SMS agent for profile: {profile_id or 'default'}")
-            # Create Agno agent with MCP support - no fallback
-            agent = await create_agno_mcp_agent(self.supabase, self.mcp_server_url, profile_id)
-            logger.info(f"Agno MCP agent initialized successfully for profile: {profile_id or 'default'}")
+        # Create Agno agent with MCP support - no fallback
+        agent = await create_agno_mcp_agent(self.supabase, self.mcp_server_url, profile_id)
+        logger.info(f"Agno MCP agent initialized successfully for profile: {profile_id or 'default'}")
+        
+        # Log available tools if MCP is connected
+        if hasattr(agent, 'mcp_tools') and agent.mcp_tools:
+            # Check functions dict for Toolkit pattern
+            tool_count = len(agent.mcp_tools.functions) if hasattr(agent.mcp_tools, 'functions') else 0
+            print(f"AGENT HAS MCP TOOLS: {tool_count} tools", flush=True)
+            logger.info(f"MCP connected with {tool_count} tools available for profile {profile_id or 'default'}")
             
-            # Log available tools if MCP is connected
-            if hasattr(agent, 'mcp_tools') and agent.mcp_tools:
-                # Check functions dict for Toolkit pattern
-                tool_count = len(agent.mcp_tools.functions) if hasattr(agent.mcp_tools, 'functions') else 0
-                print(f"AGENT HAS MCP TOOLS: {tool_count} tools", flush=True)
-                logger.info(f"MCP connected with {tool_count} tools available for profile {profile_id or 'default'}")
-                if tool_count == 0:
-                    raise Exception("No tools loaded from MCP server!")
-            else:
-                raise Exception("Agent has no MCP tools!")
-                    
-            self.agents[cache_key] = agent
+            # Log tool names for debugging
+            if tool_count > 0:
+                tool_names = list(agent.mcp_tools.functions.keys())
+                logger.info(f"Available tools: {', '.join(tool_names)}")
             
-            # Initialize morning update manager if available (only once)
-            if MORNING_UPDATE_AVAILABLE and not self.morning_update_manager:
-                # Get MCP client from any agent
+            if tool_count == 0:
+                raise Exception("No tools loaded from MCP server!")
+        else:
+            raise Exception("Agent has no MCP tools!")
+        
+        # Note: Not caching the agent anymore
+        
+        # Initialize morning update manager if available (only once)
+        if MORNING_UPDATE_AVAILABLE and not self.morning_update_manager:
                 if hasattr(agent, 'mcp_client'):
                     self.morning_update_manager = MorningUpdateManager(self.supabase, agent.mcp_client)
                     logger.info("Morning update manager initialized")
         
-        else:
-            print(f"USING CACHED AGENT FOR KEY: {cache_key}", flush=True)
-            
-        # Check tool status of the agent we're returning
-        agent = self.agents[cache_key]
-        if hasattr(agent, 'agent') and hasattr(agent.agent, 'tools'):
-            print(f"RETURNING AGENT WITH {len(agent.agent.tools)} AGNO TOOLS", flush=True)
-        else:
-            print("RETURNING AGENT WITH NO TOOLS ATTRIBUTE", flush=True)
-            
+        # Return the newly created agent
         return agent
     
     async def process_pending_jobs(self):
