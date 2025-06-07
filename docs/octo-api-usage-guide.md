@@ -161,6 +161,14 @@ GET /products
 }
 ```
 
+**Critical Notes for Availability Check**:
+- `productId`: Use exact value from GET /products response field `id`
+- `optionId`: Use exact value from `product.options[].id`
+- `units`: MUST be an array, even for 1 person
+- Unit `id`: Use EXACT value from `product.options[].units[].id`
+- Dates: Must be YYYY-MM-DD format
+- The response will contain `availabilityId` - SAVE THIS FOR BOOKING!
+
 **Response**:
 ```json
 [
@@ -206,3 +214,45 @@ GET /products
 3. **Include all required fields** - Check the API spec
 4. **Use correct unit IDs** - Get these from the products endpoint
 5. **Follow the flow** - Products → Availability → Booking
+
+## Availability Check Troubleshooting
+
+### Common Availability Errors and Solutions
+
+1. **"Field units must be an array"**
+   - Wrong: `"units": {"id": "unit_adult", "quantity": 2}`
+   - Right: `"units": [{"id": "unit_adult", "quantity": 2}]`
+
+2. **"Invalid unit ID"**
+   - Wrong: `"units": [{"id": "adult", "quantity": 2}]`
+   - Right: `"units": [{"id": "unit_adult_6a7b8c9d", "quantity": 2}]`
+   - Unit IDs come from: `GET /products` → `response[].options[].units[].id`
+
+3. **"Missing required fields"**
+   - Required: `productId`, `localDateStart`, `localDateEnd`
+   - Optional but recommended: `optionId` (for specific tour variant)
+
+4. **"Invalid date format"**
+   - Wrong: `"localDateStart": "06/08/2025"` or `"localDateStart": "2025-6-8"`
+   - Right: `"localDateStart": "2025-06-08"`
+
+### How to Extract IDs from Products Response
+
+Given this products response:
+```json
+{
+  "id": "sunset_cruise",
+  "options": [{
+    "id": "premium_option",
+    "units": [{
+      "id": "unit_adult_abc123",
+      "internalName": "Adult"
+    }]
+  }]
+}
+```
+
+Your availability request should use:
+- `productId`: "sunset_cruise"
+- `optionId`: "premium_option"
+- `units`: [{"id": "unit_adult_abc123", "quantity": 2}]
