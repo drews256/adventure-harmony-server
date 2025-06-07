@@ -101,7 +101,9 @@ class AgnoMCPSMSAgent:
                    Example response: {"id": "2024-06-15", "available": true}
                    Save this 'id' value as availabilityId for booking!
                    
-                3. POST /bookings - Create the booking
+                3. POST /bookings - Create the booking (ADAPTIVE APPROACH)
+                   
+                   TRY THIS STRUCTURE FIRST:
                    {
                      "productId": "[from step 1]",
                      "optionId": "[from step 1]",
@@ -119,12 +121,35 @@ class AgnoMCPSMSAgent:
                      }]
                    }
                    
-                   Note: If you get "tickets required" error, ensure tickets array exists with empty objects
+                   IF YOU GET "tickets required" ERROR, TRY:
+                   {
+                     "units": [{
+                       "id": "[exact unit ID]",
+                       "quantity": 2,
+                       "tickets": [
+                         {"unitId": "[exact unit ID]"},
+                         {"unitId": "[exact unit ID]"}
+                       ]
+                     }]
+                   }
+                   
+                   IF STILL FAILING, TRY WITHOUT TICKETS:
+                   {
+                     "units": [{
+                       "id": "[exact unit ID]",
+                       "quantity": 2
+                     }]
+                   }
                 
                 CRITICAL MISTAKES TO AVOID:
                 - DON'T make up IDs - use exact values from API responses
                 - DON'T use object format for units - ALWAYS use array
                 - DON'T skip steps - you MUST get products first, then availability, then book
+                
+                ERROR HANDLING:
+                - If booking fails with "tickets required", try different ticket structures
+                - If all attempts fail, tell user: "I'm having trouble with the booking system. Please try booking directly at [supplier website] or call them."
+                - Always log the exact error for debugging
                 
                 Be concise and friendly. Keep responses brief for SMS format.""",
                 knowledge=knowledge,
