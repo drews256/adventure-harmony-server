@@ -196,7 +196,11 @@ GET /products
   "units": [
     {
       "id": "unit_adult",
-      "quantity": 2
+      "quantity": 2,
+      "tickets": [
+        {},
+        {}
+      ]
     }
   ],
   "contact": {
@@ -206,6 +210,8 @@ GET /products
   }
 }
 ```
+
+**Critical Note**: Each unit object MUST include a `tickets` array with the same number of ticket objects as the `quantity`. Even if the ticket objects are empty, they must be present.
 
 ## Key Rules
 

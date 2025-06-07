@@ -88,8 +88,9 @@ class AgnoMCPSMSAgent:
                    
                 3. Create booking with POST /bookings
                    - Use EXACT availabilityId from step 2
-                   - Use same units array format
-                   - Include all required fields
+                   - Units format: [{"id": "unit_adult_123", "quantity": 2, "tickets": [{}, {}]}]
+                   - CRITICAL: Each unit must have "tickets" array with empty objects matching quantity
+                   - For 2 people: "tickets": [{}, {}], for 3 people: "tickets": [{}, {}, {}]
                 
                 CRITICAL MISTAKES TO AVOID:
                 - DON'T make up IDs - use exact values from API responses
