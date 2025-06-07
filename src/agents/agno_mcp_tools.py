@@ -268,11 +268,62 @@ class HTTPMCPTools(Toolkit):
         logger.info(f"=== MCP Tool Call: {tool_name} ===")
         logger.info(f"Raw arguments: {json.dumps(arguments, indent=2)}")
         
+        # Transform units parameter to array if needed for OCTO API calls
+        # This is specifically for OCTO API tools like octo_search_availability and octo_create_booking
+        if 'units' in arguments:
+            original_units = arguments['units']
+            logger.info(f"[UNITS TRANSFORM] Original units value: {json.dumps(original_units, indent=2)}")
+            logger.info(f"[UNITS TRANSFORM] Original units type: {type(original_units)}")
+            
+            if not isinstance(arguments['units'], list):
+                logger.warning(f"[UNITS TRANSFORM] Units is not a list! Type: {type(arguments['units'])}")
+                # Handle different cases:
+                # 1. If it's None or empty, make it an empty array
+                if not arguments['units']:
+                    arguments['units'] = []
+                    logger.info("[UNITS TRANSFORM] Converted None/empty to empty array")
+                # 2. If it's a dict (single unit object), wrap it in an array
+                elif isinstance(arguments['units'], dict):
+                    arguments['units'] = [arguments['units']]
+                    logger.info("[UNITS TRANSFORM] Wrapped dict in array")
+                # 3. If it's a string, try to parse it as JSON first
+                elif isinstance(arguments['units'], str):
+                    try:
+                        import json as json_module
+                        parsed = json_module.loads(arguments['units'])
+                        if isinstance(parsed, list):
+                            arguments['units'] = parsed
+                            logger.info("[UNITS TRANSFORM] Parsed string as JSON array")
+                        else:
+                            arguments['units'] = [parsed]
+                            logger.info("[UNITS TRANSFORM] Parsed string as JSON object and wrapped in array")
+                    except Exception as e:
+                        logger.error(f"[UNITS TRANSFORM] Failed to parse units string: {arguments['units']}, error: {e}")
+                        arguments['units'] = []
+                # 4. For any other type, wrap in array
+                else:
+                    arguments['units'] = [arguments['units']]
+                    logger.info(f"[UNITS TRANSFORM] Wrapped {type(original_units)} in array")
+                logger.info(f"[UNITS TRANSFORM] Final units value: {json.dumps(arguments['units'], indent=2)}")
+            else:
+                logger.info("[UNITS TRANSFORM] Units is already an array, no transformation needed")
+        
+        # Also check if we're calling an OCTO-specific tool and log it
+        if tool_name and 'octo' in tool_name.lower():
+            logger.info(f"Calling OCTO API tool: {tool_name}")
+            if 'units' in arguments:
+                logger.info(f"Units parameter for OCTO API: {json.dumps(arguments['units'], indent=2)}")
+        
         async with httpx.AsyncClient(timeout=30.0) as client:
             # Extract profileId from arguments if present, otherwise use instance profile_id
             from_args = 'profileId' in arguments
             profile_id = arguments.pop('profileId', self.profile_id) if from_args else self.profile_id
             logger.info(f"Profile ID for call: {repr(profile_id)} (from args: {from_args}, instance: {repr(self.profile_id)})")
+            
+            # Log the final arguments that will be sent
+            logger.info(f"[FINAL ARGUMENTS] About to send to MCP server: {json.dumps(arguments, indent=2)}")
+            if 'units' in arguments:
+                logger.info(f"[FINAL UNITS CHECK] units type: {type(arguments['units'])}, value: {arguments['units']}")
             
             call_data = {
                 "jsonrpc": "2.0",
