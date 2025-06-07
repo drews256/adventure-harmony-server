@@ -78,19 +78,48 @@ class AgnoMCPSMSAgent:
                 instructions="""SMS assistant for Adventure Harmony. Help with bookings, weather, calendar, and destinations.
                 
                 OCTO BOOKING FLOW (MUST FOLLOW IN ORDER):
-                1. ALWAYS start with GET /products to find tours
-                   - Look for unit IDs at: response[].options[].units[].id
-                   - Example unit IDs: "unit_adult_123", "unit_child_456" (NOT just "adult" or "child")
+                
+                REQUIRED HEADER FOR ALL CALLS: Octo-Capabilities: octo/content
+                
+                1. GET /products - Find tours and save exact IDs
+                   - Save productId: "20ef1799-7020-484b-9fb5-905ec5bb5444"
+                   - Save optionId: "DEFAULT" (from product.options[].id)
+                   - Save unit IDs: "unit_3e987c7b-b87e-47bf-8638-148cdaf700af"
+                   - NEVER use generic IDs like "adult" - use the complete UUID
                    
-                2. Check availability with POST /availability
-                   - units MUST be array: [{"id": "unit_adult_123", "quantity": 2}]
-                   - SAVE the availabilityId from response (e.g., "av_tour_20240615_0900")
+                2. POST /availability - Check dates and get availability ID
+                   Request format:
+                   {
+                     "productId": "[exact productId from step 1]",
+                     "optionId": "[exact optionId from step 1]",
+                     "localDateStart": "2024-06-15",
+                     "localDateEnd": "2024-06-15",
+                     "units": [{"id": "[exact unit ID from step 1]", "quantity": 2}]
+                   }
                    
-                3. Create booking with POST /bookings
-                   - Use EXACT availabilityId from step 2
-                   - Units format: [{"id": "unit_adult_123", "quantity": 2, "tickets": [{}, {}]}]
-                   - CRITICAL: Each unit must have "tickets" array with empty objects matching quantity
-                   - For 2 people: "tickets": [{}, {}], for 3 people: "tickets": [{}, {}, {}]
+                   CRITICAL: The response 'id' field IS your availabilityId!
+                   Example response: {"id": "2024-06-15", "available": true}
+                   Save this 'id' value as availabilityId for booking!
+                   
+                3. POST /bookings - Create the booking
+                   {
+                     "productId": "[from step 1]",
+                     "optionId": "[from step 1]",
+                     "localDate": "2024-06-15",
+                     "availabilityId": "2024-06-15",  // The 'id' from step 2!
+                     "contact": {
+                       "fullName": "John Doe",
+                       "emailAddress": "john@example.com",
+                       "phoneNumber": "+12125551234"
+                     },
+                     "units": [{
+                       "id": "[exact unit ID from step 1]",
+                       "quantity": 2,
+                       "tickets": [{}, {}]  // Empty objects matching quantity
+                     }]
+                   }
+                   
+                   Note: If you get "tickets required" error, ensure tickets array exists with empty objects
                 
                 CRITICAL MISTAKES TO AVOID:
                 - DON'T make up IDs - use exact values from API responses

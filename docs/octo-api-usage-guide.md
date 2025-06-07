@@ -2,12 +2,18 @@
 
 This guide helps the agent correctly use the OCTO API endpoints for booking tours and activities.
 
+## 🚨 CRITICAL UPDATES 🚨
+
+1. **ALL requests need header**: `Octo-Capabilities: octo/content`
+2. **availabilityId confusion SOLVED**: The `id` field from availability response IS your availabilityId (it's just the date like "2024-06-15")
+3. **Tickets are nested in units**: Each unit object needs a `tickets` array with empty objects matching the quantity
+
 ## Important: API Flow
 
 The OCTO API requires a specific flow:
-1. **Search products** → Get product IDs, option IDs, and unit IDs
-2. **Check availability** → Get availability IDs and time slots  
-3. **Create booking** → Use the availability ID from step 2
+1. **Search products** → Get product IDs, option IDs, and unit IDs (save exact UUIDs!)
+2. **Check availability** → Get the `id` field from response (this IS your availabilityId)
+3. **Create booking** → Use the `id` from step 2 as availabilityId
 
 ## Where to Find Unit IDs
 
@@ -162,37 +168,41 @@ GET /products
 ```
 
 **Critical Notes for Availability Check**:
+- **REQUIRED HEADER**: `Octo-Capabilities: octo/content`
 - `productId`: Use exact value from GET /products response field `id`
 - `optionId`: Use exact value from `product.options[].id`
 - `units`: MUST be an array, even for 1 person
 - Unit `id`: Use EXACT value from `product.options[].units[].id`
 - Dates: Must be YYYY-MM-DD format
-- The response will contain `availabilityId` - SAVE THIS FOR BOOKING!
 
 **Response**:
 ```json
 [
   {
-    "localDate": "2025-06-08",
+    "id": "2025-06-08",  // THIS IS YOUR AVAILABILITYID!
+    "localDateTimeStart": "2025-06-08T00:00:00+01:00",
+    "localDateTimeEnd": "2025-06-08T23:59:00+01:00",
+    "allDay": true,
     "available": true,
-    "availabilityId": "av_pub_crawl_001_20250608_1900",
-    "startTime": "19:00",
-    "status": "AVAILABLE"
+    "status": "AVAILABLE",
+    "vacancies": 50,
+    "capacity": 50
   }
 ]
 ```
 
+**CRITICAL**: The `id` field in the response IS your availabilityId for booking! It's the date in YYYY-MM-DD format.
+
 ### Step 3: User wants to book
-**User**: "Book the 7pm tour"
+**User**: "Book the tour"
 
 **Agent calls**: POST /bookings
 ```json
 {
   "productId": "pub_crawl_001",
   "optionId": "standard_tour", 
-  "availabilityId": "av_pub_crawl_001_20250608_1900",
+  "availabilityId": "2025-06-08",  // The 'id' from availability response!
   "localDate": "2025-06-08",
-  "localTime": "19:00",
   "units": [
     {
       "id": "unit_adult",
@@ -211,7 +221,12 @@ GET /products
 }
 ```
 
-**Critical Note**: Each unit object MUST include a `tickets` array with the same number of ticket objects as the `quantity`. Even if the ticket objects are empty, they must be present.
+**Critical Notes for Booking**:
+- **REQUIRED HEADER**: `Octo-Capabilities: octo/content`
+- `availabilityId`: Use the exact `id` field from availability response (it's the date!)
+- `units`: Each unit MUST include a `tickets` array with empty objects matching quantity
+- For 2 people: `"tickets": [{}, {}]`
+- Some suppliers may not require tickets - check error messages
 
 ## Key Rules
 
