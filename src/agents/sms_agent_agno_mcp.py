@@ -151,7 +151,14 @@ class AgnoMCPSMSAgent:
                 - If all attempts fail, tell user: "I'm having trouble with the booking system. Please try booking directly at [supplier website] or call them."
                 - Always log the exact error for debugging
                 
-                Be concise and friendly. Keep responses brief for SMS format.""",
+                SMS RESPONSE LIMITS:
+                - ALL responses MUST be under 1600 characters (SMS limit)
+                - Be concise and friendly
+                - Use short sentences and abbreviations when needed
+                - For long lists, show only the most relevant 2-3 items
+                - Say "Text 'more' for additional options" if truncating
+                
+                Keep responses brief and within the 1600 character limit.""",
                 knowledge=knowledge,
                 storage=self.storage,
                 session_id=self.profile_id or "default",
