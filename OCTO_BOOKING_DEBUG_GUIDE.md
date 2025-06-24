@@ -2,46 +2,55 @@
 
 ## Common Booking Errors and Solutions
 
-### Error: "Validation failed: Bookings[0] tickets at least one ticket is required"
+### Error: "Validation failed: unitItems array is required with at least one unitId"
 
-This error means the supplier requires tickets but the structure isn't correct. Try these structures in order:
+This error means you need to use the correct Ventrata API structure. Use `unitItems` instead of `units`:
 
-#### Structure 1: Empty Tickets
+#### Correct Structure: unitItems Array
 ```json
 {
-  "units": [{
-    "id": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af",
-    "quantity": 2,
-    "tickets": [{}, {}]
-  }]
-}
-```
-
-#### Structure 2: Tickets with unitId
-```json
-{
-  "units": [{
-    "id": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af",
-    "quantity": 2,
-    "tickets": [
-      {"unitId": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af"},
-      {"unitId": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af"}
-    ]
-  }]
-}
-```
-
-#### Structure 3: Tickets as Separate Field
-```json
-{
-  "units": [{
-    "id": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af",
-    "quantity": 2
-  }],
-  "tickets": [
+  "productId": "20ef1799-7020-484b-9fb5-905ec5bb5444",
+  "optionId": "DEFAULT",
+  "availabilityId": "2025-07-01",
+  "unitItems": [
     {"unitId": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af"},
     {"unitId": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af"}
   ]
+}
+```
+
+#### With UUID for Idempotency (Recommended)
+```json
+{
+  "productId": "20ef1799-7020-484b-9fb5-905ec5bb5444",
+  "optionId": "DEFAULT",
+  "availabilityId": "2025-07-01",
+  "unitItems": [
+    {
+      "unitId": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af",
+      "uuid": "550e8400-e29b-41d4-a716-446655440000"
+    },
+    {
+      "unitId": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af",
+      "uuid": "550e8400-e29b-41d4-a716-446655440001"
+    }
+  ]
+}
+```
+
+### Important: Do NOT Use These Incorrect Formats
+
+❌ **WRONG - Using units array:**
+```json
+{
+  "units": [{"id": "...", "quantity": 2}]
+}
+```
+
+❌ **WRONG - Including contact info:**
+```json
+{
+  "contact": {"fullName": "...", "email": "..."}
 }
 ```
 
@@ -87,25 +96,22 @@ Octo-Capabilities: octo/content
    ```
 
 4. **Validate Structure**
-   - Is units an array?
-   - Does tickets count match quantity?
-   - Are all required fields present?
+   - Is unitItems an array?
+   - Does each unitItem have a unitId?
+   - Are all required fields present (productId, optionId, availabilityId, unitItems)?
 
 ## Testing Different Suppliers
 
 Different OCTO suppliers may have different requirements:
 
-### Type A Suppliers (Standard)
-- Require tickets array inside units
-- Accept empty ticket objects
+### Ventrata API (OCTO Implementation)
+- Requires unitItems array (not units)
+- Each unitItem needs only unitId
+- No contact information required
+- Optional UUID for idempotency
 
-### Type B Suppliers (Detailed)
-- Require tickets with unitId reference
-- May require additional ticket fields
-
-### Type C Suppliers (Simple)
-- Don't require tickets at all
-- Just units with quantity
+### Other OCTO Implementations
+Different OCTO API implementations may have different requirements. Always check the specific API documentation for the supplier you're integrating with.
 
 ## Logging for Debug
 
@@ -120,30 +126,24 @@ Example log format:
 BOOKING ATTEMPT FAILED
 Supplier: Ventrata
 Product: 20ef1799-7020-484b-9fb5-905ec5bb5444
-Structure: Type 1 (empty tickets)
-Error: "Validation failed: Bookings[0] tickets at least one ticket is required"
-Next Action: Trying Structure Type 2
+Structure: unitItems array
+Error: "Validation failed: unitItems array is required"
+Fix: Use unitItems instead of units
 ```
 
 ## Quick Reference
 
-### Working Booking Request (most common)
+### Working Booking Request (Ventrata OCTO API)
 ```json
 {
   "productId": "20ef1799-7020-484b-9fb5-905ec5bb5444",
   "optionId": "DEFAULT",
-  "localDate": "2024-06-15",
-  "availabilityId": "2024-06-15",
-  "contact": {
-    "fullName": "John Doe",
-    "emailAddress": "john@example.com",
-    "phoneNumber": "+12125551234"
-  },
-  "units": [{
-    "id": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af",
-    "quantity": 2,
-    "tickets": [{}, {}]
-  }]
+  "availabilityId": "2025-07-01",
+  "unitItems": [
+    {"unitId": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af"},
+    {"unitId": "unit_3e987c7b-b87e-47bf-8638-148cdaf700af"}
+  ],
+  "notes": "Optional booking notes"
 }
 ```
 
